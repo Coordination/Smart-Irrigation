@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "@serialport/parser-readline": "^13.0.0",
+    "express": "^5.3.0",
+    "node-webcam": "^0.8.2",
+    "serialport": "^13.0.0",
+    "sqlite3": "^6.0.1"
+  },
+  "name": "smart-irrigation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
