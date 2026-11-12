@@ -91,12 +91,10 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     let response;
        
     try {
-        const geminiUrl = [
-            'https://generativelanguage.',
-            'google',
-            '://apis.com',
-            'gemini-2.5-flash:generateContent?key=' + apiKey.trim()
-        ].join('');
+               const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+        const path = ['v1beta', 'models', 'gemini-2.5-flash:generateContent'].join('/');
+        const geminiUrl = 'https://' + host + '/' + path + '?key=' + apiKey.trim();
+
 
         response = await fetch(
             geminiUrl,
