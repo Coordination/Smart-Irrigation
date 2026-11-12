@@ -91,7 +91,48 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     let response;
        
     try {
-               const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+               //const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+            const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-4-hydrogen'];
+    let data = null;
+    let lastError = 'Gemini API request failed';
+
+    for (const modelName of modelsToTry) {
+        const path = ['v1beta', 'models', modelName + ':generateContent'].join('/');
+        const geminiUrl = 'https://' + host + '/' + path + '?key=' + apiKey.trim();
+
+        let response;
+        try {
+            response = await fetch(
+                geminiUrl,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    signal: AbortSignal.timeout(12000),
+                    body: JSON.stringify({
+                        contents: [{ parts }],
+                        generationConfig: { responseMimeType: 'application/json' }
+                    })
+                }
+            );
+        } catch (fetchErr) {
+            lastError = fetchErr.name === 'TimeoutError' ? 'AI request timed out' : fetchErr.message;
+            continue;
+        }
+
+        data = await response.json();
+        if (response.ok && !data.error) {
+            lastError = null;
+            break;
+        }
+        lastError = data.error?.message || 'Gemini API request failed';
+        console.warn('Model ' + modelName + ' busy, trying next...', lastError);
+    }
+
+    if (lastError) {
+        throw new Error(lastError);
+    }
+
         const path = ['v1beta', 'models', 'gemini-3.8-flash:generateContent'].join('/');
         const geminiUrl = 'https://' + host + '/' + path + '?key=' + apiKey.trim();
 
