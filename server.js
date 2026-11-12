@@ -3,7 +3,6 @@ const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Allow larger Base64 image uploads from the webcam
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -13,16 +12,16 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-    console.error('❌ ERROR: MONGODB_URI environment variable is missing!');
+    console.error('ERROR: MONGODB_URI environment variable is missing!');
     process.exit(1);
 }
 
 mongoose.connect(MONGODB_URI)
     .then(() => {
-        console.log('✅ Connected to MongoDB Atlas');
+        console.log('Connected to MongoDB Atlas');
         seedDefaultData();
     })
-    .catch(err => console.error('❌ MongoDB Connection Error:', err));
+    .catch(err => console.error('MongoDB Connection Error:', err));
 
 const plantSchema = new mongoose.Schema({
     plant_name: { type: String, required: true, unique: true },
@@ -40,7 +39,6 @@ const zoneSchema = new mongoose.Schema({
 const Plant = mongoose.model('Plant', plantSchema);
 const Zone = mongoose.model('Zone', zoneSchema);
 
-// Seed default plants and zones ONLY if the database is currently empty
 async function seedDefaultData() {
     try {
         const plantCount = await Plant.countDocuments();
@@ -52,7 +50,7 @@ async function seedDefaultData() {
                 { plant_name: 'Rose', required_humidity: 40.0 },
                 { plant_name: 'Basil', required_humidity: 50.0 }
             ]);
-            console.log('🌱 Default plant library seeded to MongoDB.');
+            console.log('Default plant library seeded to MongoDB.');
         }
 
         const zoneCount = await Zone.countDocuments();
@@ -62,7 +60,7 @@ async function seedDefaultData() {
                 { zone_id: 1, plant_name: 'Fern', pump_status: 'INACTIVE', humidity_level: 58.0, cached_img: '' },
                 { zone_id: 2, plant_name: 'Cactus', pump_status: 'INACTIVE', humidity_level: 18.0, cached_img: '' }
             ]);
-            console.log('🪴 Default zones seeded to MongoDB.');
+            console.log('Default zones seeded to MongoDB.');
         }
     } catch (err) {
         console.error('Seed error:', err);
@@ -75,7 +73,6 @@ async function seedDefaultData() {
 async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
 
-    // 1. Check MongoDB first if searching by name
     if (cleanName && !base64Image) {
         const existing = await Plant.findOne({
             plant_name: { $regex: new RegExp(`^${cleanName}$`, 'i') }
@@ -88,7 +85,6 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         throw new Error('GEMINI_API_KEY is missing in environment variables.');
     }
 
-    // 2. Build prompt for Image Identification or Name Lookup
     const parts = [];
     if (base64Image) {
         const base64Clean = base64Image.split(',')[1];
@@ -128,7 +124,6 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     const formattedName = parsed.plant_name.charAt(0).toUpperCase() + parsed.plant_name.slice(1);
     const humidity = parseFloat(parsed.required_humidity) || 45.0;
 
-    // 3. Save permanently to MongoDB if not already present
     let libraryEntry = await Plant.findOne({
         plant_name: { $regex: new RegExp(`^${formattedName}$`, 'i') }
     });
@@ -169,8 +164,6 @@ setInterval(async () => {
 // ==========================================
 // 4. API ROUTES
 // ==========================================
-
-// Route 1: Manual Dropdown Selector Assignment
 app.post('/assign-dropdown', async (req, res) => {
     const { zone_id, plant_name } = req.body;
     if (plant_name) {
@@ -179,7 +172,6 @@ app.post('/assign-dropdown', async (req, res) => {
     res.json({ success: true });
 });
 
-// Route 2: Custom Plant Name Input + Web/AI Humidity Lookup
 app.post('/api/custom-plant', async (req, res) => {
     const { zone_id, plant_name } = req.body;
     if (!plant_name || !plant_name.trim()) {
@@ -201,7 +193,6 @@ app.post('/api/custom-plant', async (req, res) => {
     }
 });
 
-// Route 3: Camera Upload & AI Vision Identification
 app.post('/api/scan-camera', async (req, res) => {
     const { zone_id, image_data } = req.body;
     if (!image_data) {
@@ -221,7 +212,6 @@ app.post('/api/scan-camera', async (req, res) => {
                 humidity: plantInfo.required_humidity
             });
         }
-        // Still save the snapshot even if unrecognized
         await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: image_data });
         return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
     } catch (err) {
@@ -252,3 +242,9 @@ app.get('/', async (req, res) => {
                 <p>Crop Focus: <b style="color:#2e7d32;">${z.plant_name}</b> (Threshold: ${currentThreshold}%)</p>
                 <p>Moisture Reading: <span class="num">${z.humidity_level}%</span></p>
                 
+                <div class="box" id="media-box-${z.zone_id}">
+                    <img id="img-${z.zone_id}" src="${z.cached_img || ''}" style="display:${z.cached_img ? 'block' : 'none'}; width:100%; height:100%; object-fit:cover;">
+                    <video id="video-${z.zone_id}" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>
+                    <span id="label-${z.zone_id}" style="display:${z.cached_img ? 'none' : 'block'}; color:#777; font-style:italic; font-size:13px;">Camera Off</span>
+                </div>
+
