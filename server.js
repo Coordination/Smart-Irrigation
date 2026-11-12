@@ -183,7 +183,7 @@ app.get('/', async (req, res) => {
         if (!z) return res.status(500).send('Zone not initialized yet. Refresh in a moment.');
 
         const dropdownOptions = plantLibrary.map(p =>
-            `<option value="${p.plant_name}">${p.plant_name} (${p.required_humidity}%)</option>`
+             '<option value="' + p.plant_name + '">' + p.plant_name + ' (' + p.required_humidity + '%)</option>'
         ).join('');
 
         const currentThreshold = plantLibrary.find(p => p.plant_name.toLowerCase() === z.plant_name.toLowerCase())?.required_humidity || 0;
