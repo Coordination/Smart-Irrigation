@@ -107,7 +107,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         throw new Error('Fetch failed: ' + realReason);
     }
 
-    );
+    
 
     const data = await response.json();
     if (!response.ok || data.error) {
