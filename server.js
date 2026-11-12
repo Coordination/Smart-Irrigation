@@ -1,3 +1,4 @@
+
 const express = require('express');
 const mongoose = require('mongoose');
 const app = express();
@@ -65,7 +66,8 @@ async function seedDefaultData() {
 async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
     if (cleanName && !base64Image) {
-        const existing = await Plant.findOne({ plant_name: { $regex: new RegExp(`^${cleanName}$`, 'i') } });
+        const escapedName = cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const existing = await Plant.findOne({ plant_name: { $regex: new RegExp(`^${escapedName}$`, 'i') } });
         if (existing) return existing;
     }
 
@@ -81,7 +83,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         parts.push({ text: `What is the ideal soil moisture percentage (between 10 and 85) for growing "${cleanName}"? Reply ONLY with valid JSON: {"plant_name": "${cleanName}", "required_humidity": 45}.` });
     }
 
-        const response = await fetch(
+    const response = await fetch(
         `https://googleapis.com{apiKey}`,
         {
             method: 'POST',
@@ -99,7 +101,6 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         throw new Error(data.error?.message || 'Gemini API request failed');
     }
 
-    const data = await response.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) throw new Error('No response from AI service.');
 
@@ -231,7 +232,7 @@ app.get('/', async (req, res) => {
                 });
 
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    return alert("Camera unavailable: You must open this page via http://localhost:3000 or HTTPS.");
+                    return alert("Camera unavailable: Please open this site over HTTPS.");
                 }
 
                 const video = document.getElementById('video-' + zoneId);
@@ -351,4 +352,4 @@ app.get('/', async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
