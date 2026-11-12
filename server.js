@@ -176,6 +176,7 @@ app.post('/api/scan-camera', async (req, res) => {
     }
 });
 // 5. MAIN DASHBOARD INTERFACE
+// 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
     try {
         const plantLibrary = await Plant.find().sort({ plant_name: 1 });
@@ -183,178 +184,172 @@ app.get('/', async (req, res) => {
         if (!z) return res.status(500).send('Zone not initialized yet. Refresh in a moment.');
 
         const dropdownOptions = plantLibrary.map(p =>
-             '<option value="' + p.plant_name + '">' + p.plant_name + ' (' + p.required_humidity + '%)</option>'
+            '<option value="' + p.plant_name + '">' + p.plant_name + ' (' + p.required_humidity + '%)</option>'
         ).join('');
 
         const currentThreshold = plantLibrary.find(p => p.plant_name.toLowerCase() === z.plant_name.toLowerCase())?.required_humidity || 0;
+        const badgeText = z.pump_status === 'ACTIVE' ? 'PUMP: ON' : 'PUMP: OFF';
+        const imgDisplay = z.cached_img ? 'block' : 'none';
+        const labelDisplay = z.cached_img ? 'none' : 'block';
 
-        const panelHtml = `
-        <div class="card" id="zone-card-${z.zone_id}">
-            <h2>Zone 1 <span class="badge ${z.pump_status}">${z.pump_status === 'ACTIVE' ? 'PUMP: ON' : 'PUMP: OFF'}</span></h2>
-            <p>Crop Focus: <b style="color:#2e7d32;">${z.plant_name}</b> (Threshold: ${currentThreshold}%)</p>
-            <p>Moisture Reading: <span class="num">${z.humidity_level}%</span></p>
-            <div class="box" id="media-box-${z.zone_id}">
-                <img id="img-${z.zone_id}" src="${z.cached_img || ''}" style="display:${z.cached_img ? 'block' : 'none'}; width:100%; height:100%; object-fit:cover;">
-                <video id="video-${z.zone_id}" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>
-                <span id="label-${z.zone_id}" style="display:${z.cached_img ? 'none' : 'block'}; color:#777; font-style:italic; font-size:13px;">Camera Off</span>
-            </div>
-            <select onchange="handleDropdownUpdate(${z.zone_id}, this.value)">
-                <option value="">-- Select Saved Plant --</option>
-                ${dropdownOptions}
-            </select>
-            <div style="margin-top: 8px; display: flex; gap: 5px;">
-                <input type="text" id="custom-input-${z.zone_id}" placeholder="Or type any plant (e.g. Orchid)" style="flex:2; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">
-                <button type="button" id="custom-btn-${z.zone_id}" onclick="handleCustomPlant(${z.zone_id})" style="flex:1; background:#2980b9;">Set</button>
-            </div>
-            <div style="margin-top: 8px; display: flex; gap: 5px;">
-                <button type="button" onclick="startLaptopCamera(${z.zone_id})" style="background:#34495e;">Start Cam</button>
-                <button type="button" id="scan-btn-${z.zone_id}" onclick="captureLaptopFrame(${z.zone_id})" style="background:#27ae60;">Scan Crop</button>
-            </div>
-        </div>`;
+        const panelHtml =
+            '<div class="card" id="zone-card-' + z.zone_id + '">' +
+                '<h2>Zone 1 <span class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
+                '<p>Crop Focus: <b style="color:#2e7d32;">' + z.plant_name + '</b> (Threshold: ' + currentThreshold + '%)</p>' +
+                '<p>Moisture Reading: <span class="num">' + z.humidity_level + '%</span></p>' +
+                '<div class="box" id="media-box-' + z.zone_id + '">' +
+                    '<img id="img-' + z.zone_id + '" src="' + (z.cached_img || '') + '" style="display:' + imgDisplay + '; width:100%; height:100%; object-fit:cover;">' +
+                    '<video id="video-' + z.zone_id + '" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>' +
+                    '<span id="label-' + z.zone_id + '" style="display:' + labelDisplay + '; color:#777; font-style:italic; font-size:13px;">Camera Off</span>' +
+                '</div>' +
+                '<select onchange="handleDropdownUpdate(' + z.zone_id + ', this.value)">' +
+                    '<option value="">-- Select Saved Plant --</option>' +
+                    dropdownOptions +
+                '</select>' +
+                '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
+                    '<input type="text" id="custom-input-' + z.zone_id + '" placeholder="Or type any plant (e.g. Orchid)" style="flex:2; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">' +
+                    '<button type="button" id="custom-btn-' + z.zone_id + '" onclick="handleCustomPlant(' + z.zone_id + ')" style="flex:1; background:#2980b9;">Set</button>' +
+                '</div>' +
+                '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
+                    '<button type="button" onclick="startLaptopCamera(' + z.zone_id + ')" style="background:#34495e;">Start Cam</button>' +
+                    '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="captureLaptopFrame(' + z.zone_id + ')" style="background:#27ae60;">Scan Crop</button>' +
+                '</div>' +
+            '</div>';
 
-        res.send(`<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>
-        <style>
-            body{font-family:sans-serif;background:#f0f2f5;padding:20px;} 
-            .container{max-width:420px;margin:0 auto;} 
-            .card{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1);border-top:4px solid #2e7d32;} 
-            .badge{float:right;font-size:12px;padding:4px 10px;border-radius:20px;font-weight:bold;} 
-            .ACTIVE{background:#d4edda;color:#155724;border:1px solid #155724;} 
-            .INACTIVE{background:#e2e3e5;color:#383d41;border:1px solid #ccc;} 
-            .num{font-size:22px;font-weight:bold;color:#004085;} 
-            .box{width:100%;height:180px;background:#e9ecef;margin:12px 0;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;border:1px solid #ccc;} 
-            select,button{width:100%;padding:10px;border-radius:4px;border:1px solid #ccc;font-size:13px;} 
-            button{color:white;border:none;cursor:pointer;font-weight:bold;}
-            button:disabled{opacity:0.6;cursor:not-allowed;}
-        </style>
-        <script>
-            let operationalStreams = {};
-            let isBusy = false;
+        const htmlPage = [
+            '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
+            '<style>',
+            'body{font-family:sans-serif;background:#f0f2f5;padding:20px;}',
+            '.container{max-width:420px;margin:0 auto;}',
+            '.card{background:white;padding:20px;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1);border-top:4px solid #2e7d32;}',
+            '.badge{float:right;font-size:12px;padding:4px 10px;border-radius:20px;font-weight:bold;}',
+            '.ACTIVE{background:#d4edda;color:#155724;border:1px solid #155724;}',
+            '.INACTIVE{background:#e2e3e5;color:#383d41;border:1px solid #ccc;}',
+            '.num{font-size:22px;font-weight:bold;color:#004085;}',
+            '.box{width:100%;height:180px;background:#e9ecef;margin:12px 0;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;border:1px solid #ccc;}',
+            'select,button{width:100%;padding:10px;border-radius:4px;border:1px solid #ccc;font-size:13px;}',
+            'button{color:white;border:none;cursor:pointer;font-weight:bold;}',
+            'button:disabled{opacity:0.6;cursor:not-allowed;}',
+            '</style>',
+            '<script>',
+            'let operationalStreams = {};',
+            'let isBusy = false;',
+            'async function startLaptopCamera(zoneId) {',
+            '    Object.keys(operationalStreams).forEach(id => {',
+            '        operationalStreams[id].getTracks().forEach(track => track.stop());',
+            '        delete operationalStreams[id];',
+            '    });',
+            '    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {',
+            '        return alert("Camera unavailable: Please open this site over HTTPS.");',
+            '    }',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    const img = document.getElementById("img-" + zoneId);',
+            '    const label = document.getElementById("label-" + zoneId);',
+            '    try {',
+            '        let stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });',
+            '        operationalStreams[zoneId] = stream;',
+            '        video.srcObject = stream;',
+            '        video.style.display = "block";',
+            '        if (img) img.style.display = "none";',
+            '        if (label) label.style.display = "none";',
+            '    } catch (err) {',
+            '        alert("Camera initialization rejected (" + err.name + "): " + err.message);',
+            '    }',
+            '}',
+            'async function captureLaptopFrame(zoneId) {',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
+            '    if (!operationalStreams[zoneId]) return alert("Please click Start Cam first!");',
+            '    isBusy = true;',
+            '    scanBtn.disabled = true;',
+            '    scanBtn.innerText = "Identifying...";',
+            '    const canvas = document.createElement("canvas");',
+            '    canvas.width = video.videoWidth || 640;',
+            '    canvas.height = video.videoHeight || 480;',
+            '    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
+            '    const base64Image = canvas.toDataURL("image/jpeg", 0.7);',
+            '    operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
+            '    delete operationalStreams[zoneId];',
+            '    try {',
+            '        const response = await fetch("/api/scan-camera", {',
+            '            method: "POST",',
+            '            headers: { "Content-Type": "application/json" },',
+            '            body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })',
+            '        });',
+            '        const resData = await response.json();',
+            '        if (resData.success) {',
+            '            window.location.reload();',
+            '        } else {',
+            '            alert(resData.error || "Plant could not be identified.");',
+            '            isBusy = false;',
+            '            scanBtn.disabled = false;',
+            '            scanBtn.innerText = "Scan Crop";',
+            '        }',
+            '    } catch (err) {',
+            '        alert("Network error: " + err.message);',
+            '        isBusy = false;',
+            '        scanBtn.disabled = false;',
+            '        scanBtn.innerText = "Scan Crop";',
+            '    }',
+            '}',
+            'async function handleCustomPlant(zoneId) {',
+            '    const input = document.getElementById("custom-input-" + zoneId);',
+            '    const btn = document.getElementById("custom-btn-" + zoneId);',
+            '    const plantName = input.value.trim();',
+            '    if (!plantName) return alert("Please enter a plant name.");',
+            '    isBusy = true;',
+            '    btn.disabled = true;',
+            '    btn.innerText = "...";',
+            '    try {',
+            '        const response = await fetch("/api/custom-plant", {',
+            '            method: "POST",',
+            '            headers: { "Content-Type": "application/json" },',
+            '            body: JSON.stringify({ zone_id: zoneId, plant_name: plantName })',
+            '        });',
+            '        const resData = await response.json();',
+            '        if (resData.success) {',
+            '            window.location.reload();',
+            '        } else {',
+            '            alert(resData.error || "Could not look up plant.");',
+            '            isBusy = false;',
+            '            btn.disabled = false;',
+            '            btn.innerText = "Set";',
+            '        }',
+            '    } catch (err) {',
+            '        alert("Network error: " + err.message);',
+            '        isBusy = false;',
+            '        btn.disabled = false;',
+            '        btn.innerText = "Set";',
+            '    }',
+            '}',
+            'async function handleDropdownUpdate(zoneId, plantName) {',
+            '    if (!plantName) return;',
+            '    isBusy = true;',
+            '    await fetch("/assign-dropdown", {',
+            '        method: "POST",',
+            '        headers: { "Content-Type": "application/x-www-form-urlencoded" },',
+            '        body: "zone_id=" + zoneId + "&plant_name=" + encodeURIComponent(plantName)',
+            '    });',
+            '    window.location.reload();',
+            '}',
+            'setInterval(() => {',
+            '    const activeCamera = Object.keys(operationalStreams).length > 0;',
+            '    const isTyping = document.activeElement && document.activeElement.tagName === "INPUT";',
+            '    if (!activeCamera && !isTyping && !isBusy) {',
+            '        window.location.reload();',
+            '    }',
+            '}, 6000);',
+            '</script>',
+            '</head><body>',
+            '<h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>',
+            '<div class="container">' + panelHtml + '</div>',
+            '</body></html>'
+        ].join('\n');
 
-            async function startLaptopCamera(zoneId) {
-                Object.keys(operationalStreams).forEach(id => {
-                    operationalStreams[id].getTracks().forEach(track => track.stop());
-                    delete operationalStreams[id];
-                });
-
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    return alert("Camera unavailable: Please open this site over HTTPS.");
-                }
-
-                const video = document.getElementById('video-' + zoneId);
-                const img = document.getElementById('img-' + zoneId);
-                const label = document.getElementById('label-' + zoneId);
-                try {
-                    let stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                    operationalStreams[zoneId] = stream;
-                    video.srcObject = stream;
-                    video.style.display = 'block';
-                    if (img) img.style.display = 'none';
-                    if (label) label.style.display = 'none';
-                } catch (err) {
-                    alert("Camera initialization rejected (" + err.name + "): " + err.message);
-                }
-            }
-
-            async function captureLaptopFrame(zoneId) {
-                const video = document.getElementById('video-' + zoneId);
-                const scanBtn = document.getElementById('scan-btn-' + zoneId);
-                if (!operationalStreams[zoneId]) return alert("Please click 'Start Cam' first!");
-
-                isBusy = true;
-                scanBtn.disabled = true;
-                scanBtn.innerText = 'Identifying...';
-
-                const canvas = document.createElement('canvas');
-                canvas.width = video.videoWidth || 640;
-                canvas.height = video.videoHeight || 480;
-                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-                const base64Image = canvas.toDataURL('image/jpeg', 0.7);
-
-                operationalStreams[zoneId].getTracks().forEach(track => track.stop());
-                delete operationalStreams[zoneId];
-
-                try {
-                    const response = await fetch('/api/scan-camera', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })
-                    });
-                    const resData = await response.json();
-                    if (resData.success) {
-                        window.location.reload();
-                    } else {
-                        alert(resData.error || 'Plant could not be identified.');
-                        isBusy = false;
-                        scanBtn.disabled = false;
-                        scanBtn.innerText = 'Scan Crop';
-                    }
-                } catch (err) {
-                    alert('Network error: ' + err.message);
-                    isBusy = false;
-                    scanBtn.disabled = false;
-                    scanBtn.innerText = 'Scan Crop';
-                }
-            }
-
-            async function handleCustomPlant(zoneId) {
-                const input = document.getElementById('custom-input-' + zoneId);
-                const btn = document.getElementById('custom-btn-' + zoneId);
-                const plantName = input.value.trim();
-                if (!plantName) return alert('Please enter a plant name.');
-
-                isBusy = true;
-                btn.disabled = true;
-                btn.innerText = '...';
-
-                try {
-                    const response = await fetch('/api/custom-plant', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ zone_id: zoneId, plant_name: plantName })
-                    });
-                    const resData = await response.json();
-                    if (resData.success) {
-                        window.location.reload();
-                    } else {
-                        alert(resData.error || 'Could not look up plant.');
-                        isBusy = false;
-                        btn.disabled = false;
-                        btn.innerText = 'Set';
-                    }
-                } catch (err) {
-                    alert('Network error: ' + err.message);
-                    isBusy = false;
-                    btn.disabled = false;
-                    btn.innerText = 'Set';
-                }
-            }
-
-            async function handleDropdownUpdate(zoneId, plantName) {
-                if (!plantName) return;
-                isBusy = true;
-                await fetch('/assign-dropdown', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'zone_id=' + zoneId + '&plant_name=' + encodeURIComponent(plantName)
-                });
-                window.location.reload();
-            }
-
-            setInterval(() => {
-                const activeCamera = Object.keys(operationalStreams).length > 0;
-                const isTyping = document.activeElement && document.activeElement.tagName === 'INPUT';
-                if (!activeCamera && !isTyping && !isBusy) {
-                    window.location.reload();
-                }
-            }, 6000);
-        </script>
-        </head><body>
-            <h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>
-            <div class="container">${panelHtml}</div>
-        </body></html>`);
+        res.send(htmlPage);
     } catch (err) {
         res.status(500).send('Database error: ' + err.message);
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log('Server running on port ' + PORT));
