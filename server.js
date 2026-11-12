@@ -344,7 +344,7 @@ app.get('/', async (req, res) => {
             '<h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>',
             '<div class="container">' + panelHtml + '</div>',
             '</body></html>'
-        ].join('\n');
+               ].join('\n');
 
         res.send(htmlPage);
     } catch (err) {
