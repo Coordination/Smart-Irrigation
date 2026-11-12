@@ -81,7 +81,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         parts.push({ text: `What is the ideal soil moisture percentage (between 10 and 85) for growing "${cleanName}"? Reply ONLY with valid JSON: {"plant_name": "${cleanName}", "required_humidity": 45}.` });
     }
 
-    const response = await fetch(
+        const response = await fetch(
         `https://googleapis.com{apiKey}`,
         {
             method: 'POST',
@@ -92,6 +92,12 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
             })
         }
     );
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+        console.error('Gemini API Error:', data.error || data);
+        throw new Error(data.error?.message || 'Gemini API request failed');
+    }
 
     const data = await response.json();
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -219,6 +225,15 @@ app.get('/', async (req, res) => {
             let isBusy = false;
 
             async function startLaptopCamera(zoneId) {
+                Object.keys(operationalStreams).forEach(id => {
+                    operationalStreams[id].getTracks().forEach(track => track.stop());
+                    delete operationalStreams[id];
+                });
+
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    return alert("Camera unavailable: You must open this page via http://localhost:3000 or HTTPS.");
+                }
+
                 const video = document.getElementById('video-' + zoneId);
                 const img = document.getElementById('img-' + zoneId);
                 const label = document.getElementById('label-' + zoneId);
@@ -230,7 +245,7 @@ app.get('/', async (req, res) => {
                     if (img) img.style.display = 'none';
                     if (label) label.style.display = 'none';
                 } catch (err) {
-                    alert("Camera initialization rejected: " + err.message);
+                    alert("Camera initialization rejected (" + err.name + "): " + err.message);
                 }
             }
 
