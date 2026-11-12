@@ -74,7 +74,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
     if (cleanName && !base64Image) {
         const escapedName = cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const existing = await Plant.findOne({ plant_name: { $regex: new RegExp(`^${escapedName}$`, 'i') } });
+                const existing = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + escapedName + '$', 'i') } });
         if (existing) return existing;
     }
 
@@ -117,7 +117,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     const formattedName = parsed.plant_name.charAt(0).toUpperCase() + parsed.plant_name.slice(1);
     const humidity = parseFloat(parsed.required_humidity) || 45.0;
 
-    let libraryEntry = await Plant.findOne({ plant_name: { $regex: new RegExp(`^${formattedName}$`, 'i') } });
+    let libraryEntry = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + formattedName + '$', 'i') } });
     if (!libraryEntry) {
         libraryEntry = await Plant.create({ plant_name: formattedName, required_humidity: humidity });
     }
@@ -129,7 +129,7 @@ setInterval(async () => {
     try {
         const z = await Zone.findOne({ zone_id: 0 });
         if (!z) return;
-        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp(`^${z.plant_name}$`, 'i') } });
+        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + z.plant_name + '$', 'i') } });
         const newHumidity = parseFloat((Math.random() * (80 - 20) + 20).toFixed(1));
         const newStatus = (targetCrop && newHumidity < targetCrop.required_humidity) ? 'ACTIVE' : 'INACTIVE';
         await Zone.updateOne({ zone_id: 0 }, { humidity_level: newHumidity, pump_status: newStatus });
