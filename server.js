@@ -87,16 +87,26 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         parts.push({ text: 'What is the ideal soil moisture percentage (between 10 and 85) for growing "' + cleanName + '"? Reply ONLY with valid JSON: {"plant_name": "' + cleanName + '", "required_humidity": 45}.' });
     }
 
-    const response = await fetch(
-        'https://googleapis.com' + apiKey,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts }],
-                generationConfig: { responseMimeType: 'application/json' }
-            })
-        }
+       // ❌ REPLACE THE EXISTING const response = await fetch(...) BLOCK WITH THIS:
+    let response;
+    try {
+        response = await fetch(
+            'https://googleapis.com' + apiKey.trim(),
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts }],
+                    generationConfig: { responseMimeType: 'application/json' }
+                })
+            }
+        );
+    } catch (fetchErr) {
+        const realReason = fetchErr.cause ? (fetchErr.cause.code + ' - ' + fetchErr.cause.message) : fetchErr.message;
+        console.error('Gemini Fetch Crash:', fetchErr);
+        throw new Error('Fetch failed: ' + realReason);
+    }
+
     );
 
     const data = await response.json();
