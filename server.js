@@ -91,7 +91,8 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     let response;
     try {
         response = await fetch(
-            'https://googleapis.com' + apiKey.trim(),
+                        'https://googleapis.com' + apiKey.trim(),
+
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
