@@ -69,6 +69,7 @@ async function seedDefaultData() {
 }
 
 // 2. GEMINI AI PLANT LOOKUP & VISION HELPER
+// 2. GEMINI AI PLANT LOOKUP & VISION HELPER
 async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
     if (cleanName && !base64Image) {
@@ -82,7 +83,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
     const parts = [];
     if (base64Image) {
-        const base64Clean = base64Image.split(',')[1];
+        const base64Clean = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
         parts.push({ text: 'Identify the plant in this photo and determine its ideal soil moisture percentage (between 10 and 85). Reply ONLY with valid JSON: {"plant_name": "Common Name", "required_humidity": 45}. If no plant is visible, reply {"plant_name": "Unknown", "required_humidity": 0}.' });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Clean } });
     } else {
