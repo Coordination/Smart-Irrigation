@@ -89,14 +89,17 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
        // ❌ REPLACE THE EXISTING const response = await fetch(...) BLOCK WITH THIS:
     let response;
+        let response;
     try {
+        const geminiUrl = [
+            'https://generativelanguage.',
+            'google',
+            '://apis.com',
+            'gemini-2.5-flash:generateContent?key=' + apiKey.trim()
+        ].join('');
+
         response = await fetch(
-                                                'https://generativelanguage.' +
-            'google' +
-            '://apis.com' +
-            'gemini-2.5-flash:generateContent?key=' + apiKey.trim(),
-
-
+            geminiUrl,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -106,6 +109,8 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
                 })
             }
         );
+    } 
+
     } catch (fetchErr) {
         const realReason = fetchErr.cause ? (fetchErr.cause.code + ' - ' + fetchErr.cause.message) : fetchErr.message;
         console.error('Gemini Fetch Crash:', fetchErr);
