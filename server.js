@@ -91,7 +91,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     }
 
     const response = await fetch(
-        `https://googleapis.com{apiKey}`,
+        `https://googleapis.com +apiKey,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
