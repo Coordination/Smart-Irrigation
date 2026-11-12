@@ -91,7 +91,10 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     let response;
     try {
         response = await fetch(
-                        'https://googleapis.com' + apiKey.trim(),
+                                    'https://generativelanguage.' +
+            '://googleapis.com' +
+            'gemini-2.5-flash:generateContent?key=' + apiKey.trim(),
+
 
             {
                 method: 'POST',
