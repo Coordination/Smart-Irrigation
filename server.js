@@ -89,7 +89,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
        // ❌ REPLACE THE EXISTING const response = await fetch(...) BLOCK WITH THIS:
     let response;
-        let response;
+       
     try {
         const geminiUrl = [
             'https://generativelanguage.',
