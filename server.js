@@ -49,10 +49,8 @@ async function seedDefaultData() {
             console.log('Default plant library seeded.');
         }
 
-        // Remove any extra zones (Zone 2 & 3) if they exist in MongoDB
         await Zone.deleteMany({ zone_id: { $ne: 0 } });
 
-        // Ensure only Zone 0 (displayed as Zone 1) exists
         if (await Zone.countDocuments({ zone_id: 0 }) === 0) {
             await Zone.create({
                 zone_id: 0,
@@ -69,12 +67,11 @@ async function seedDefaultData() {
 }
 
 // 2. GEMINI AI PLANT LOOKUP & VISION HELPER
-// 2. GEMINI AI PLANT LOOKUP & VISION HELPER
 async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
     if (cleanName && !base64Image) {
         const escapedName = cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const existing = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + escapedName + '$', 'i') } });
+        const existing = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + escapedName + '$', 'i') } });
         if (existing) return existing;
     }
 
@@ -87,11 +84,11 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         parts.push({ text: 'Identify the plant in this photo and determine its ideal soil moisture percentage (between 10 and 85). Reply ONLY with valid JSON: {"plant_name": "Common Name", "required_humidity": 45}. If no plant is visible, reply {"plant_name": "Unknown", "required_humidity": 0}.' });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Clean } });
     } else {
-        parts.push({ text: `What is the ideal soil moisture percentage (between 10 and 85) for growing "${cleanName}"? Reply ONLY with valid JSON: {"plant_name": "${cleanName}", "required_humidity": 45}.` });
+        parts.push({ text: 'What is the ideal soil moisture percentage (between 10 and 85) for growing "' + cleanName + '"? Reply ONLY with valid JSON: {"plant_name": "' + cleanName + '", "required_humidity": 45}.' });
     }
 
     const response = await fetch(
-        `https://googleapis.com +apiKey,
+        'https://googleapis.com' + apiKey,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -175,7 +172,6 @@ app.post('/api/scan-camera', async (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
     }
 });
-// 5. MAIN DASHBOARD INTERFACE
 // 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
     try {
@@ -344,7 +340,7 @@ app.get('/', async (req, res) => {
             '<h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>',
             '<div class="container">' + panelHtml + '</div>',
             '</body></html>'
-               ].join('\n');
+        ].join('\n');
 
         res.send(htmlPage);
     } catch (err) {
