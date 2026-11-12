@@ -161,9 +161,12 @@ setInterval(async () => {
 }, 5000);
 
 // 4. API ROUTES
+// 4. API ROUTES
 app.post('/assign-dropdown', async (req, res) => {
     const { zone_id, plant_name } = req.body;
-    if (plant_name) await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name });
+    if (plant_name) {
+        await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name, cached_img: '' });
+    }
     res.json({ success: true });
 });
 
@@ -173,7 +176,7 @@ app.post('/api/custom-plant', async (req, res) => {
     try {
         const plantInfo = await getOrFetchPlantData(plant_name);
         if (plantInfo) {
-            await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name: plantInfo.plant_name });
+            await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name: plantInfo.plant_name, cached_img: '' });
             return res.json({ success: true, plant: plantInfo });
         }
         return res.json({ success: false, error: 'Could not find humidity data for that plant.' });
@@ -191,12 +194,18 @@ app.post('/api/scan-camera', async (req, res) => {
             await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name: plantInfo.plant_name, cached_img: image_data });
             return res.json({ success: true, matched_crop: plantInfo.plant_name, humidity: plantInfo.required_humidity });
         }
-        await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: image_data });
         return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
     } catch (err) {
         return res.status(500).json({ success: false, error: err.message });
     }
 });
+
+app.post('/api/clear-image', async (req, res) => {
+    const { zone_id } = req.body;
+    await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: '' });
+    res.json({ success: true });
+});
+
 // 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
     try {
@@ -230,11 +239,13 @@ app.get('/', async (req, res) => {
                 '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
                     '<input type="text" id="custom-input-' + z.zone_id + '" placeholder="Or type any plant (e.g. Orchid)" style="flex:2; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">' +
                     '<button type="button" id="custom-btn-' + z.zone_id + '" onclick="handleCustomPlant(' + z.zone_id + ')" style="flex:1; background:#2980b9;">Set</button>' +
-                '</div>' +
+                '</div>' 
                 '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
                     '<button type="button" onclick="startLaptopCamera(' + z.zone_id + ')" style="background:#34495e;">Start Cam</button>' +
                     '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="captureLaptopFrame(' + z.zone_id + ')" style="background:#27ae60;">Scan Crop</button>' +
-                '</div>' +
+                    '<button type="button" onclick="clearCameraBox(' + z.zone_id + ')" style="background:#7f8c8d;">Clear</button>' +
+                '</div>' 
+ +
             '</div>';
 
         const htmlPage = [
@@ -369,6 +380,20 @@ app.get('/', async (req, res) => {
             '    });',
             '    window.location.reload();',
             '}',
+                        'async function clearCameraBox(zoneId) {',
+            '    isBusy = true;',
+            '    if (operationalStreams[zoneId]) {',
+            '        operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
+            '        delete operationalStreams[zoneId];',
+            '    }',
+            '    await fetch("/api/clear-image", {',
+            '        method: "POST",',
+            '        headers: { "Content-Type": "application/json" },',
+            '        body: JSON.stringify({ zone_id: zoneId })',
+            '    });',
+            '    window.location.reload();',
+            '}',
+
             'setInterval(() => {',
             '    const activeCamera = Object.keys(operationalStreams).length > 0;',
             '    const isTyping = document.activeElement && document.activeElement.tagName === "INPUT";',
