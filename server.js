@@ -88,11 +88,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     }
 
        // ❌ REPLACE THE EXISTING const response = await fetch(...) BLOCK WITH THIS:
-    let response;
-       
-    try {
-               //const host = ['generativelanguage', 'googleapis', 'com'].join('.');
-            const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+        const host = ['generativelanguage', 'googleapis', 'com'].join('.');
     const modelsToTry = ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-4-hydrogen'];
     let data = null;
     let lastError = 'Gemini API request failed';
@@ -127,39 +123,11 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         }
         lastError = data.error?.message || 'Gemini API request failed';
         console.warn('Model ' + modelName + ' busy, trying next...', lastError);
+        await new Promise(resolve => setTimeout(resolve, 1500));
     }
 
     if (lastError) {
         throw new Error(lastError);
-    }
-
-        const path = ['v1beta', 'models', 'gemini-3.8-flash:generateContent'].join('/');
-        const geminiUrl = 'https://' + host + '/' + path + '?key=' + apiKey.trim();
-
-
-        response = await fetch(
-            geminiUrl,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts }],
-                    generationConfig: { responseMimeType: 'application/json' }
-                })
-            }
-        );
-    } catch (fetchErr) {
-        const realReason = fetchErr.cause ? (fetchErr.cause.code + ' - ' + fetchErr.cause.message) : fetchErr.message;
-        console.error('Gemini Fetch Crash:', fetchErr);
-        throw new Error('Fetch failed: ' + realReason);
-    }
-
-    
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-        console.error('Gemini API Error:', data.error || data);
-        throw new Error(data.error?.message || 'Gemini API request failed');
     }
 
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
