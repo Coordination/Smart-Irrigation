@@ -109,8 +109,6 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
                 })
             }
         );
-    } 
-
     } catch (fetchErr) {
         const realReason = fetchErr.cause ? (fetchErr.cause.code + ' - ' + fetchErr.cause.message) : fetchErr.message;
         console.error('Gemini Fetch Crash:', fetchErr);
