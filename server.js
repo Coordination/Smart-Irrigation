@@ -35,6 +35,11 @@ const zoneSchema = new mongoose.Schema({
 
 const Plant = mongoose.model('Plant', plantSchema);
 const Zone = mongoose.model('Zone', zoneSchema);
+const mlModelSchema = new mongoose.Schema({
+    model_id: { type: String, default: 'leaf_knn', unique: true },
+    dataset_json: { type: String, required: true }
+});
+const MLModel = mongoose.model('MLModel', mlModelSchema);
 
 async function seedDefaultData() {
     try {
@@ -205,6 +210,30 @@ app.post('/api/clear-image', async (req, res) => {
     await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: '' });
     res.json({ success: true });
 });
+app.get('/api/ml-model', async (req, res) => {
+    try {
+        const saved = await MLModel.findOne({ model_id: 'leaf_knn' });
+        res.json({ success: true, dataset_json: saved ? saved.dataset_json : null });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/ml-model', async (req, res) => {
+    try {
+        const { dataset_json } = req.body;
+        if (!dataset_json) return res.status(400).json({ success: false, error: 'Missing dataset' });
+        await MLModel.findOneAndUpdate(
+            { model_id: 'leaf_knn' },
+            { dataset_json },
+            { upsert: true, new: true }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 
 // 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
@@ -275,7 +304,22 @@ app.get('/', async (req, res) => {
             //'let isBusy = false;',
             'let net;',
             'let classifier = knnClassifier.create();',
-            'async function loadMLModel() { net = await mobilenet.load(); console.log("MobileNet loaded"); }',
+                        'async function loadMLModel() {',
+            '    net = await mobilenet.load();',
+            '    try {',
+            '        const res = await fetch("/api/ml-model");',
+            '        const data = await res.json();',
+            '        if (data.success && data.dataset_json) {',
+            '            const raw = JSON.parse(data.dataset_json);',
+            '            const tensorObj = {};',
+            '            Object.keys(raw).forEach(key => {',
+            '                tensorObj[key] = tf.tensor(raw[key].data, raw[key].shape, "float32");',
+            '            });',
+            '            classifier.setClassifierDataset(tensorObj);',
+            '            console.log("Loaded " + Object.keys(tensorObj).length + " trained plant classes from MongoDB.");',
+            '        }',
+            '    } catch (err) { console.error("Model load error:", err); }',
+            '}',
             'loadMLModel();',
             'async function trainLeafSample(zoneId) {',
             '    const plantLabel = document.getElementById("custom-input-" + zoneId).value.trim();',
@@ -284,46 +328,18 @@ app.get('/', async (req, res) => {
             '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
             '    const activation = net.infer(video, true);',
             '    classifier.addExample(activation, plantLabel);',
-            '    alert("Trained sample for: " + plantLabel + " (Classes: " + classifier.getNumClasses() + ")");',
-            '}',
-                'async function classifyLeafML(zoneId) {',
-            '    const video = document.getElementById("video-" + zoneId);',
-            '    const img = document.getElementById("img-" + zoneId);',
-            '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
-            '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
-            '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
-            '    let predictedPlant = "Unknown"; let confidence = 0;',
-            '    if (classifier.getNumClasses() > 0) {',
-            '        const activation = net.infer(video, true);',
-            '        const result = await classifier.predictClass(activation);',
-            '        predictedPlant = result.label;',
-            '        confidence = (result.confidences[result.label] * 100).toFixed(1);',
-            '    } else {',
-            '        const predictions = await net.classify(video);',
-            '        predictedPlant = predictions[0].className.split(",")[0];',
-            '        confidence = (predictions[0].probability * 100).toFixed(1);',
-            '    }',
-            '    const canvas = document.createElement("canvas");',
-            '    canvas.width = 320; canvas.height = 240;',
-            '    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
-            '    if (img) { img.src = canvas.toDataURL("image/jpeg", 0.8); img.style.display = "block"; }',
-            '    video.style.display = "none";',
-            '    operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
-            '    delete operationalStreams[zoneId];',
-            '    if (confidence < 60) {',
-            '        isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
-            '        return alert("Low confidence (" + confidence + "%). Add more samples with Train Leaf.");',
-            '    }',
-            '    const response = await fetch("/api/custom-plant", {',
+            '    const dataset = classifier.getClassifierDataset();',
+            '    const serializable = {};',
+            '    Object.keys(dataset).forEach(key => {',
+            '        serializable[key] = { data: Array.from(dataset[key].dataSync()), shape: dataset[key].shape };',
+            '    });',
+            '    await fetch("/api/ml-model", {',
             '        method: "POST",',
             '        headers: { "Content-Type": "application/json" },',
-            '        body: JSON.stringify({ zone_id: zoneId, plant_name: predictedPlant })',
+            '        body: JSON.stringify({ dataset_json: JSON.stringify(serializable) })',
             '    });',
-            '    const resData = await response.json();',
-            '    if (resData.success) window.location.reload();',
-            '    else { alert(resData.error); isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf"; }',
+            '    alert("Saved sample to MongoDB for: " + plantLabel + " (Total classes: " + classifier.getNumClasses() + ")");',
             '}',
-
 
             
             'async function startLaptopCamera(zoneId) {',
