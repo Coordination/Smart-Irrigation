@@ -280,9 +280,9 @@ app.get('/', async (req, res) => {
 
         const htmlPage = [
             '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
-                       '<script src="https://jsdelivr.net"></script>',
-            '<script src="https://jsdelivr.net"></script>',
-            '<script src="https://jsdelivr.net"></script>',
+                                  '<script src="https://unpkg.com"></script>',
+            '<script src="https://unpkg.com"></script>',
+            '<script src="https://unpkg.com"></script>',
 
             '<style>',
             'body{font-family:sans-serif;background:#f0f2f5;padding:20px;}',
