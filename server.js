@@ -286,8 +286,9 @@ app.get('/', async (req, res) => {
             '    classifier.addExample(activation, plantLabel);',
             '    alert("Trained sample for: " + plantLabel + " (Classes: " + classifier.getNumClasses() + ")");',
             '}',
-            'async function classifyLeafML(zoneId) {',
+                'async function classifyLeafML(zoneId) {',
             '    const video = document.getElementById("video-" + zoneId);',
+            '    const img = document.getElementById("img-" + zoneId);',
             '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
             '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
             '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
@@ -302,6 +303,13 @@ app.get('/', async (req, res) => {
             '        predictedPlant = predictions[0].className.split(",")[0];',
             '        confidence = (predictions[0].probability * 100).toFixed(1);',
             '    }',
+            '    const canvas = document.createElement("canvas");',
+            '    canvas.width = 320; canvas.height = 240;',
+            '    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
+            '    if (img) { img.src = canvas.toDataURL("image/jpeg", 0.8); img.style.display = "block"; }',
+            '    video.style.display = "none";',
+            '    operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
+            '    delete operationalStreams[zoneId];',
             '    if (confidence < 60) {',
             '        isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
             '        return alert("Low confidence (" + confidence + "%). Add more samples with Train Leaf.");',
@@ -315,6 +323,7 @@ app.get('/', async (req, res) => {
             '    if (resData.success) window.location.reload();',
             '    else { alert(resData.error); isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf"; }',
             '}',
+
 
             
             'async function startLaptopCamera(zoneId) {',
