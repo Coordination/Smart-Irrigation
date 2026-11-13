@@ -382,7 +382,7 @@ app.get('/', async (req, res) => {
             '        canvas.width = 640; canvas.height = 480;',
             '        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
             '        const base64Image = canvas.toDataURL("image/jpeg", 0.9);',
-            '        //let localMatch = null;',
+            '        let localMatch = null;',
             '      //  if (net && classifier && classifier.getNumClasses() >= 2) {',
             '         //   const activation = net.infer(video, true);',
             '          //  const result = await classifier.predictClass(activation, 5);',
@@ -393,7 +393,7 @@ app.get('/', async (req, res) => {
             '            //    console.log("Local KNN Match:", localMatch, confidence.toFixed(1) + "%");',
             '           // }',
             '      //  }',
-                    let localMatch = null;
+                    //let localMatch = null;
         if (net && classifier && classifier.getNumClasses() >= 1) {
             const activation = net.infer(video, true);
             const result = await classifier.predictClass(activation, 3);
