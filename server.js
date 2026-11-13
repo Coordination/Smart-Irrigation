@@ -242,14 +242,19 @@ app.get('/', async (req, res) => {
                 '</div>' +
                 '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
                     '<button type="button" onclick="startLaptopCamera(' + z.zone_id + ')" style="background:#34495e;">Start Cam</button>' +
-                    '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="captureLaptopFrame(' + z.zone_id + ')" style="background:#27ae60;">Scan Crop</button>' +
+                    '<button type="button" onclick="trainLeafSample(' + z.zone_id + ')" style="background:#e67e22;">Train Leaf</button>' +
+                    '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="classifyLeafML(' + z.zone_id + ')" style="background:#27ae60;">Scan Leaf</button>' +
                     '<button type="button" onclick="clearCameraBox(' + z.zone_id + ')" style="background:#7f8c8d;">Clear</button>' +
-                '</div>' 
- +
+                '</div>' +
+
             '</div>';
 
         const htmlPage = [
             '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
+           '<script src="https://jsdelivr.net"></script>',
+            '<script src="https://jsdelivr.net"></script>',
+            '<script src="https://jsdelivr.net"></script>',
+
             '<style>',
             'body{font-family:sans-serif;background:#f0f2f5;padding:20px;}',
             '.container{max-width:420px;margin:0 auto;}',
@@ -266,6 +271,52 @@ app.get('/', async (req, res) => {
             '<script>',
             'let operationalStreams = {};',
             'let isBusy = false;',
+            //'let operationalStreams = {};',
+            //'let isBusy = false;',
+            'let net;',
+            'let classifier = knnClassifier.create();',
+            'async function loadMLModel() { net = await mobilenet.load(); console.log("MobileNet loaded"); }',
+            'loadMLModel();',
+            'async function trainLeafSample(zoneId) {',
+            '    const plantLabel = document.getElementById("custom-input-" + zoneId).value.trim();',
+            '    if (!plantLabel) return alert("Type the plant name in the text box first to train!");',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
+            '    const activation = net.infer(video, true);',
+            '    classifier.addExample(activation, plantLabel);',
+            '    alert("Trained sample for: " + plantLabel + " (Classes: " + classifier.getNumClasses() + ")");',
+            '}',
+            'async function classifyLeafML(zoneId) {',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
+            '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
+            '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
+            '    let predictedPlant = "Unknown"; let confidence = 0;',
+            '    if (classifier.getNumClasses() > 0) {',
+            '        const activation = net.infer(video, true);',
+            '        const result = await classifier.predictClass(activation);',
+            '        predictedPlant = result.label;',
+            '        confidence = (result.confidences[result.label] * 100).toFixed(1);',
+            '    } else {',
+            '        const predictions = await net.classify(video);',
+            '        predictedPlant = predictions[0].className.split(",")[0];',
+            '        confidence = (predictions[0].probability * 100).toFixed(1);',
+            '    }',
+            '    if (confidence < 60) {',
+            '        isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
+            '        return alert("Low confidence (" + confidence + "%). Add more samples with Train Leaf.");',
+            '    }',
+            '    const response = await fetch("/api/custom-plant", {',
+            '        method: "POST",',
+            '        headers: { "Content-Type": "application/json" },',
+            '        body: JSON.stringify({ zone_id: zoneId, plant_name: predictedPlant })',
+            '    });',
+            '    const resData = await response.json();',
+            '    if (resData.success) window.location.reload();',
+            '    else { alert(resData.error); isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf"; }',
+            '}',
+
+            
             'async function startLaptopCamera(zoneId) {',
             '    Object.keys(operationalStreams).forEach(id => {',
             '        operationalStreams[id].getTracks().forEach(track => track.stop());',
