@@ -86,7 +86,8 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
     const parts = [];
     if (base64Image) {
-        const base64Clean = base64Image.includes(',') ? base64Image.split(',') : base64Image;
+              const base64Clean = base64Image.includes(',') ? base64Image.split(',').pop() : base64Image;
+
         parts.push({ text: 'Identify the plant in this photo and determine its ideal soil moisture percentage (between 10 and 85). Reply ONLY with valid JSON: {"plant_name": "Common Name", "required_humidity": 45}. If no plant is visible, reply {"plant_name": "Unknown", "required_humidity": 0}.' });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Clean } });
     } else {
@@ -94,7 +95,8 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     }
 
     const host = ['generativelanguage', 'googleapis', 'com'].join('.');
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
+       const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-4-hydrogen'];
+
     let data = null;
     let lastError = 'Gemini API request failed';
 
@@ -130,7 +132,8 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
     if (lastError) throw new Error(lastError);
 
-    const rawText = data.candidates?.?.content?.parts?.?.text;
+     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
     if (!rawText) throw new Error('No response from AI service.');
 
     const parsed = JSON.parse(rawText);
