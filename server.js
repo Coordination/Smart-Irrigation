@@ -382,17 +382,29 @@ app.get('/', async (req, res) => {
             '        canvas.width = 640; canvas.height = 480;',
             '        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
             '        const base64Image = canvas.toDataURL("image/jpeg", 0.9);',
-            '        let localMatch = null;',
-            '        if (net && classifier && classifier.getNumClasses() >= 2) {',
-            '            const activation = net.infer(video, true);',
-            '            const result = await classifier.predictClass(activation, 5);',
-            '            activation.dispose();',
-            '            const confidence = result.confidences[result.label] * 100;',
-            '            if (confidence >= 80) {',
-            '                localMatch = result.label;',
-            '                console.log("Local KNN Match:", localMatch, confidence.toFixed(1) + "%");',
-            '            }',
-            '        }',
+            '        //let localMatch = null;',
+            '      //  if (net && classifier && classifier.getNumClasses() >= 2) {',
+            '         //   const activation = net.infer(video, true);',
+            '          //  const result = await classifier.predictClass(activation, 5);',
+            '          //  activation.dispose();',
+            '          //  const confidence = result.confidences[result.label] * 100;',
+            '         //   if (confidence >= 80) {',
+            '            //    localMatch = result.label;',
+            '            //    console.log("Local KNN Match:", localMatch, confidence.toFixed(1) + "%");',
+            '           // }',
+            '      //  }',
+                    let localMatch = null;
+        if (net && classifier && classifier.getNumClasses() >= 1) {
+            const activation = net.infer(video, true);
+            const result = await classifier.predictClass(activation, 3);
+            activation.dispose();
+            const confidence = result.confidences[result.label] * 100;
+            console.log("KNN Prediction:", result.label, confidence.toFixed(1) + "%");
+            if (confidence >= 65) {
+                localMatch = result.label;
+            }
+        }
+
             '        if (img) { img.src = base64Image; img.style.display = "block"; }',
             '        video.style.display = "none";',
             '        operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
