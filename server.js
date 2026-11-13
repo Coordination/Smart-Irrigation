@@ -265,9 +265,11 @@ app.get('/', async (req, res) => {
 
         const panelHtml =
             '<div class="card" id="zone-card-' + z.zone_id + '">' +
-                '<h2>Zone 1 <span class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
+                
+                            '<h2>Zone 1 <span id="pump-badge-' + z.zone_id + '" class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
                 '<p>Crop Focus: <b style="color:#2e7d32;">' + z.plant_name + '</b> (Threshold: ' + currentThreshold + '%)</p>' +
-                '<p>Moisture Reading: <span class="num">' + z.humidity_level + '%</span></p>' +
+                '<p>Moisture Reading: <span id="moisture-num-' + z.zone_id + '" class="num">' + z.humidity_level + '%</span></p>' +
+
                 '<div class="box" id="media-box-' + z.zone_id + '">' +
                     '<img id="img-' + z.zone_id + '" src="' + (z.cached_img || '') + '" style="display:' + imgDisplay + '; width:100%; height:100%; object-fit:cover;">' +
                     '<video id="video-' + z.zone_id + '" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>' +
@@ -488,13 +490,22 @@ app.get('/', async (req, res) => {
             '    });',
             '    window.location.reload();',
             '}',
-            'setInterval(() => {',
-            '    const activeCamera = Object.keys(operationalStreams).length > 0;',
-            '    const isTyping = document.activeElement && document.activeElement.tagName === "INPUT";',
-            '    if (!activeCamera && !isTyping && !isBusy) {',
-            '        window.location.reload();',
-            '    }',
-            '}, 6000);',
+               'setInterval(async () => {',
+            '    try {',
+            '        const res = await fetch("/api/zone-status");',
+            '        const data = await res.json();',
+            '        if (data.success) {',
+            '            const numEl = document.getElementById("moisture-num-0");',
+            '            const badgeEl = document.getElementById("pump-badge-0");',
+            '            if (numEl) numEl.innerText = data.humidity_level + "%";',
+            '            if (badgeEl) {',
+            '                badgeEl.className = "badge " + data.pump_status;',
+            '                badgeEl.innerText = data.pump_status === "ACTIVE" ? "PUMP: ON" : "PUMP: OFF";',
+            '            }',
+            '        }',
+            '    } catch (e) {}',
+            '}, 5000);',
+
             '</script>',
             '</head><body>',
             '<h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>',
