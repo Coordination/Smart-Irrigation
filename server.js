@@ -210,6 +210,19 @@ app.post('/api/clear-image', async (req, res) => {
     await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: '' });
     res.json({ success: true });
 });
+app.get('/api/zone-status', async (req, res) => {
+    try {
+        const z = await Zone.findOne({ zone_id: 0 });
+        if (!z) return res.status(404).json({ success: false });
+        res.json({
+            success: true,
+            humidity_level: z.humidity_level,
+            pump_status: z.pump_status
+        });
+    } catch (err) {
+        res.status(500).json({ success: false });
+    }
+});
 
 app.get('/api/ml-model', async (req, res) => {
     try {
