@@ -5,8 +5,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use('/libs', express.static('node_modules'));
-
 
 // 1. MONGODB CONNECTION & SCHEMAS
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -35,12 +33,13 @@ const zoneSchema = new mongoose.Schema({
     cached_img: { type: String, default: '' }
 });
 
-const Plant = mongoose.model('Plant', plantSchema);
-const Zone = mongoose.model('Zone', zoneSchema);
 const mlModelSchema = new mongoose.Schema({
     model_id: { type: String, default: 'leaf_knn', unique: true },
     dataset_json: { type: String, required: true }
 });
+
+const Plant = mongoose.model('Plant', plantSchema);
+const Zone = mongoose.model('Zone', zoneSchema);
 const MLModel = mongoose.model('MLModel', mlModelSchema);
 
 async function seedDefaultData() {
@@ -73,7 +72,7 @@ async function seedDefaultData() {
     }
 }
 
-// 2. GEMINI AI PLANT LOOKUP & VISION HELPER
+// 2. GEMINI AI PLANT LOOKUP HELPER
 async function getOrFetchPlantData(plantName, base64Image = null) {
     const cleanName = plantName ? plantName.trim() : '';
     if (cleanName && !base64Image) {
@@ -87,16 +86,15 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
     const parts = [];
     if (base64Image) {
-        const base64Clean = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
+        const base64Clean = base64Image.includes(',') ? base64Image.split(',') : base64Image;
         parts.push({ text: 'Identify the plant in this photo and determine its ideal soil moisture percentage (between 10 and 85). Reply ONLY with valid JSON: {"plant_name": "Common Name", "required_humidity": 45}. If no plant is visible, reply {"plant_name": "Unknown", "required_humidity": 0}.' });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Clean } });
     } else {
         parts.push({ text: 'What is the ideal soil moisture percentage (between 10 and 85) for growing "' + cleanName + '"? Reply ONLY with valid JSON: {"plant_name": "' + cleanName + '", "required_humidity": 45}.' });
     }
 
-       // ❌ REPLACE THE EXISTING const response = await fetch(...) BLOCK WITH THIS:
-        const host = ['generativelanguage', 'googleapis', 'com'].join('.');
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-4-hydrogen'];
+    const host = ['generativelanguage', 'googleapis', 'com'].join('.');
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
     let data = null;
     let lastError = 'Gemini API request failed';
 
@@ -106,18 +104,15 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
         let response;
         try {
-            response = await fetch(
-                geminiUrl,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    signal: AbortSignal.timeout(12000),
-                    body: JSON.stringify({
-                        contents: [{ parts }],
-                        generationConfig: { responseMimeType: 'application/json' }
-                    })
-                }
-            );
+            response = await fetch(geminiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: AbortSignal.timeout(12000),
+                body: JSON.stringify({
+                    contents: [{ parts }],
+                    generationConfig: { responseMimeType: 'application/json' }
+                })
+            });
         } catch (fetchErr) {
             lastError = fetchErr.name === 'TimeoutError' ? 'AI request timed out' : fetchErr.message;
             continue;
@@ -133,11 +128,9 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         await new Promise(resolve => setTimeout(resolve, 1500));
     }
 
-    if (lastError) {
-        throw new Error(lastError);
-    }
+    if (lastError) throw new Error(lastError);
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const rawText = data.candidates?.?.content?.parts?.?.text;
     if (!rawText) throw new Error('No response from AI service.');
 
     const parsed = JSON.parse(rawText);
@@ -168,7 +161,6 @@ setInterval(async () => {
 }, 5000);
 
 // 4. API ROUTES
-// 4. API ROUTES
 app.post('/assign-dropdown', async (req, res) => {
     const { zone_id, plant_name } = req.body;
     if (plant_name) {
@@ -192,26 +184,12 @@ app.post('/api/custom-plant', async (req, res) => {
     }
 });
 
-app.post('/api/scan-camera', async (req, res) => {
-    const { zone_id, image_data } = req.body;
-    if (!image_data) return res.status(400).json({ success: false, error: 'Image missing' });
-    try {
-        const plantInfo = await getOrFetchPlantData(null, image_data);
-        if (plantInfo) {
-            await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name: plantInfo.plant_name, cached_img: image_data });
-            return res.json({ success: true, matched_crop: plantInfo.plant_name, humidity: plantInfo.required_humidity });
-        }
-        return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
-    } catch (err) {
-        return res.status(500).json({ success: false, error: err.message });
-    }
-});
-
 app.post('/api/clear-image', async (req, res) => {
     const { zone_id } = req.body;
     await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: '' });
     res.json({ success: true });
 });
+
 app.get('/api/ml-model', async (req, res) => {
     try {
         const saved = await MLModel.findOne({ model_id: 'leaf_knn' });
@@ -235,8 +213,6 @@ app.post('/api/ml-model', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-
-
 // 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
     try {
@@ -277,12 +253,10 @@ app.get('/', async (req, res) => {
                     '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="classifyLeafML(' + z.zone_id + ')" style="background:#27ae60;">Scan Leaf</button>' +
                     '<button type="button" onclick="clearCameraBox(' + z.zone_id + ')" style="background:#7f8c8d;">Clear</button>' +
                 '</div>' +
-
             '</div>';
 
         const htmlPage = [
             '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
-                                                        
             '<style>',
             'body{font-family:sans-serif;background:#f0f2f5;padding:20px;}',
             '.container{max-width:420px;margin:0 auto;}',
@@ -299,14 +273,7 @@ app.get('/', async (req, res) => {
             '<script>',
             'let operationalStreams = {};',
             'let isBusy = false;',
-            //'let operationalStreams = {};',
-            //'let isBusy = false;',
             'let net;',
-            
-                        'async function loadMLModel() {',
-            '    net = await mobilenet.load();',
-            '    try {',
-                                 'let net;',
             'let classifier;',
             'function injectScript(url) {',
             '    return new Promise((resolve, reject) => {',
@@ -347,28 +314,43 @@ app.get('/', async (req, res) => {
             '    }',
             '}',
             'window.addEventListener("DOMContentLoaded", loadMLModel);',
-
+            'async function trainLeafSample(zoneId) {',
+            '    if (!net || !classifier) return alert("AI Model still loading, wait a moment.");',
+            '    const plantLabel = document.getElementById("custom-input-" + zoneId).value.trim();',
+            '    if (!plantLabel) return alert("Type the plant name in the text box first to train!");',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
+            '    const activation = net.infer(video, true);',
+            '    classifier.addExample(activation, plantLabel);',
+            '    activation.dispose();',
+            '    const dataset = classifier.getClassifierDataset();',
+            '    const serializable = {};',
+            '    Object.keys(dataset).forEach(key => {',
+            '        serializable[key] = { data: Array.from(dataset[key].dataSync()), shape: dataset[key].shape };',
+            '    });',
+            '    await fetch("/api/ml-model", {',
+            '        method: "POST",',
+            '        headers: { "Content-Type": "application/json" },',
+            '               body: JSON.stringify({ dataset_json: JSON.stringify(serializable) })',
+            '    });',
+            '    alert("Saved sample to MongoDB for: " + plantLabel + " (Total classes: " + classifier.getNumClasses() + ")");',
+            '}',
             'async function classifyLeafML(zoneId) {',
             '    const video = document.getElementById("video-" + zoneId);',
             '    const img = document.getElementById("img-" + zoneId);',
             '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
-            '    if (!net) return alert("Model still loading, wait 2 seconds.");',
+            '    if (!net || !classifier) return alert("AI Model still loading, wait 2 seconds.");',
             '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
+            '    if (classifier.getNumClasses() === 0) {',
+            '        return alert("No leaves trained yet! Type a plant name and click Train Leaf 3-5 times first.");',
+            '    }',
             '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
             '    try {',
-            '        let predictedPlant = "Unknown";',
-            '        let confidence = 0;',
-            '        if (classifier.getNumClasses() > 0) {',
-            '            const activation = net.infer(video, true);',
-            '            const result = await classifier.predictClass(activation);',
-            '            activation.dispose();',
-            '            predictedPlant = result.label;',
-            '            confidence = (result.confidences[result.label] * 100).toFixed(1);',
-            '        } else {',
-            '            const predictions = await net.classify(video);',
-            '            predictedPlant = predictions[0].className.split(",")[0];',
-            '            confidence = (predictions[0].probability * 100).toFixed(1);',
-            '        }',
+            '        const activation = net.infer(video, true);',
+            '        const result = await classifier.predictClass(activation);',
+            '        activation.dispose();',
+            '        const predictedPlant = result.label;',
+            '        const confidence = (result.confidences[result.label] * 100).toFixed(1);',
             '        const canvas = document.createElement("canvas");',
             '        canvas.width = 320; canvas.height = 240;',
             '        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
@@ -378,7 +360,7 @@ app.get('/', async (req, res) => {
             '        delete operationalStreams[zoneId];',
             '        if (parseFloat(confidence) < 60) {',
             '            isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
-            '            return alert("Low confidence (" + confidence + "%). Train more samples first.");',
+            '            return alert("Low confidence (" + confidence + "%). Add more samples with Train Leaf.");',
             '        }',
             '        const response = await fetch("/api/custom-plant", {',
             '            method: "POST",',
@@ -393,8 +375,6 @@ app.get('/', async (req, res) => {
             '        isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
             '    }',
             '}',
-
-            
             'async function startLaptopCamera(zoneId) {',
             '    Object.keys(operationalStreams).forEach(id => {',
             '        operationalStreams[id].getTracks().forEach(track => track.stop());',
@@ -417,66 +397,12 @@ app.get('/', async (req, res) => {
             '        alert("Camera initialization rejected (" + err.name + "): " + err.message);',
             '    }',
             '}',
-                        'async function captureLaptopFrame(zoneId) {',
-            '    const video = document.getElementById("video-" + zoneId);',
-            '    const img = document.getElementById("img-" + zoneId);',
-            '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
-            '    if (!operationalStreams[zoneId]) return alert("Please click Start Cam first!");',
-            '    if (video.readyState < 2 || video.videoWidth === 0) {',
-            '        return alert("Camera is still warming up. Wait 1 second and click Scan Crop again.");',
-            '    }',
-            '    isBusy = true;',
-            '    scanBtn.disabled = true;',
-            '    scanBtn.innerText = "Identifying...";',
-            '    const canvas = document.createElement("canvas");',
-            '    canvas.width = 320;',
-            '    canvas.height = 240;',
-            '    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
-            '    const base64Image = canvas.toDataURL("image/jpeg", 0.7);',
-            '    if (img) {',
-            '        img.src = base64Image;',
-            '        img.style.display = "block";',
-            '    }',
-            '    video.style.display = "none";',
-            '    operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
-            '    delete operationalStreams[zoneId];',
-            '    try {',
-            '        const response = await fetch("/api/scan-camera", {',
-            '            method: "POST",',
-            '            headers: { "Content-Type": "application/json" },',
-            '            body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })',
-            '        });',
-            '        const rawText = await response.text();',
-            '        let resData;',
-            '        try {',
-            '            resData = JSON.parse(rawText);',
-            '        } catch (parseErr) {',
-            '            throw new Error("Server timeout or invalid response (HTTP " + response.status + ")");',
-            '        }',
-            '        if (resData.success) {',
-            '            window.location.reload();',
-            '        } else {',
-            '            alert(resData.error || "Plant could not be identified.");',
-            '            isBusy = false;',
-            '            scanBtn.disabled = false;',
-            '            scanBtn.innerText = "Scan Crop";',
-            '        }',
-            '    } catch (err) {',
-            '        alert("Scan error: " + err.message);',
-            '        isBusy = false;',
-            '        scanBtn.disabled = false;',
-            '        scanBtn.innerText = "Scan Crop";',
-            '    }',
-            '}',
-
             'async function handleCustomPlant(zoneId) {',
             '    const input = document.getElementById("custom-input-" + zoneId);',
             '    const btn = document.getElementById("custom-btn-" + zoneId);',
             '    const plantName = input.value.trim();',
             '    if (!plantName) return alert("Please enter a plant name.");',
-            '    isBusy = true;',
-            '    btn.disabled = true;',
-            '    btn.innerText = "...";',
+            '    isBusy = true; btn.disabled = true; btn.innerText = "...";',
             '    try {',
             '        const response = await fetch("/api/custom-plant", {',
             '            method: "POST",',
@@ -484,19 +410,11 @@ app.get('/', async (req, res) => {
             '            body: JSON.stringify({ zone_id: zoneId, plant_name: plantName })',
             '        });',
             '        const resData = await response.json();',
-            '        if (resData.success) {',
-            '            window.location.reload();',
-            '        } else {',
-            '            alert(resData.error || "Could not look up plant.");',
-            '            isBusy = false;',
-            '            btn.disabled = false;',
-            '            btn.innerText = "Set";',
-            '        }',
+            '        if (resData.success) window.location.reload();',
+            '        else { alert(resData.error || "Could not look up plant."); isBusy = false; btn.disabled = false; btn.innerText = "Set"; }',
             '    } catch (err) {',
             '        alert("Network error: " + err.message);',
-            '        isBusy = false;',
-            '        btn.disabled = false;',
-            '        btn.innerText = "Set";',
+            '        isBusy = false; btn.disabled = false; btn.innerText = "Set";',
             '    }',
             '}',
             'async function handleDropdownUpdate(zoneId, plantName) {',
@@ -509,7 +427,7 @@ app.get('/', async (req, res) => {
             '    });',
             '    window.location.reload();',
             '}',
-                        'async function clearCameraBox(zoneId) {',
+            'async function clearCameraBox(zoneId) {',
             '    isBusy = true;',
             '    if (operationalStreams[zoneId]) {',
             '        operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
@@ -522,7 +440,6 @@ app.get('/', async (req, res) => {
             '    });',
             '    window.location.reload();',
             '}',
-
             'setInterval(() => {',
             '    const activeCamera = Object.keys(operationalStreams).length > 0;',
             '    const isTyping = document.activeElement && document.activeElement.tagName === "INPUT";',
