@@ -186,6 +186,24 @@ app.post('/api/custom-plant', async (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
     }
 });
+app.post('/api/scan-camera', async (req, res) => {
+    const { zone_id, image_data } = req.body;
+    if (!image_data) return res.status(400).json({ success: false, error: 'Image missing' });
+    try {
+        const plantInfo = await getOrFetchPlantData(null, image_data);
+        if (plantInfo) {
+            await Zone.updateOne(
+                { zone_id: parseInt(zone_id) },
+                { plant_name: plantInfo.plant_name, cached_img: image_data }
+            );
+            return res.json({ success: true, matched_crop: plantInfo.plant_name, humidity: plantInfo.required_humidity });
+        }
+        return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
+    } catch (err) {
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 
 app.post('/api/clear-image', async (req, res) => {
     const { zone_id } = req.body;
@@ -338,46 +356,60 @@ app.get('/', async (req, res) => {
             '    });',
             '    alert("Saved sample to MongoDB for: " + plantLabel + " (Total classes: " + classifier.getNumClasses() + ")");',
             '}',
-            'async function classifyLeafML(zoneId) {',
+                       'async function classifyLeafML(zoneId) {',
             '    const video = document.getElementById("video-" + zoneId);',
             '    const img = document.getElementById("img-" + zoneId);',
             '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
-            '    if (!net || !classifier) return alert("AI Model still loading, wait 2 seconds.");',
             '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
-            '    if (classifier.getNumClasses() === 0) {',
-            '        return alert("No leaves trained yet! Type a plant name and click Train Leaf 3-5 times first.");',
-            '    }',
             '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
             '    try {',
-            '        const activation = net.infer(video, true);',
-            '        const result = await classifier.predictClass(activation);',
-            '        activation.dispose();',
-            '        const predictedPlant = result.label;',
-            '        const confidence = (result.confidences[result.label] * 100).toFixed(1);',
             '        const canvas = document.createElement("canvas");',
-            '        canvas.width = 320; canvas.height = 240;',
+            '        canvas.width = 640; canvas.height = 480;',
             '        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
-            '        if (img) { img.src = canvas.toDataURL("image/jpeg", 0.8); img.style.display = "block"; }',
+            '        const base64Image = canvas.toDataURL("image/jpeg", 0.9);',
+            '        let localMatch = null;',
+            '        if (net && classifier && classifier.getNumClasses() >= 2) {',
+            '            const activation = net.infer(video, true);',
+            '            const result = await classifier.predictClass(activation, 5);',
+            '            activation.dispose();',
+            '            const confidence = result.confidences[result.label] * 100;',
+            '            if (confidence >= 80) {',
+            '                localMatch = result.label;',
+            '                console.log("Local KNN Match:", localMatch, confidence.toFixed(1) + "%");',
+            '            }',
+            '        }',
+            '        if (img) { img.src = base64Image; img.style.display = "block"; }',
             '        video.style.display = "none";',
             '        operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
             '        delete operationalStreams[zoneId];',
-            '        if (parseFloat(confidence) < 60) {',
-            '            isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
-            '            return alert("Low confidence (" + confidence + "%). Add more samples with Train Leaf.");',
+            '        if (localMatch) {',
+            '            const res = await fetch("/api/custom-plant", {',
+            '                method: "POST",',
+            '                headers: { "Content-Type": "application/json" },',
+            '                body: JSON.stringify({ zone_id: zoneId, plant_name: localMatch })',
+            '            });',
+            '            const data = await res.json();',
+            '            if (data.success) return window.location.reload();',
             '        }',
-            '        const response = await fetch("/api/custom-plant", {',
+            '        scanBtn.innerText = "Ask Gemini AI...";',
+            '        const cloudRes = await fetch("/api/scan-camera", {',
             '            method: "POST",',
             '            headers: { "Content-Type": "application/json" },',
-            '            body: JSON.stringify({ zone_id: zoneId, plant_name: predictedPlant })',
+            '            body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })',
             '        });',
-            '        const resData = await response.json();',
-            '        if (resData.success) window.location.reload();',
-            '        else { alert(resData.error); isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf"; }',
+            '        const cloudData = await cloudRes.json();',
+            '        if (cloudData.success) {',
+            '            window.location.reload();',
+            '        } else {',
+            '            alert(cloudData.error || "Plant could not be identified.");',
+            '            isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
+            '        }',
             '    } catch (err) {',
             '        alert("Scan Leaf Error: " + err.message);',
             '        isBusy = false; scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf";',
             '    }',
             '}',
+
             'async function startLaptopCamera(zoneId) {',
             '    Object.keys(operationalStreams).forEach(id => {',
             '        operationalStreams[id].getTracks().forEach(track => track.stop());',
