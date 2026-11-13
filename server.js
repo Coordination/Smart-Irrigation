@@ -282,7 +282,10 @@ app.get('/', async (req, res) => {
 
         const htmlPage = [
             '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
-                                              '<script src="/libs/@tensorflow/tfjs/dist/tf.min.js"></script>',
+                                                         '<script src="https://jsdelivr.net"></script>',
+            '<script src="https://jsdelivr.net"></script>',
+            '<script src="https://jsdelivr.net"></script>',
+ '<script src="/libs/@tensorflow/tfjs/dist/tf.min.js"></script>',
             '<script src="/libs/@tensorflow-models/mobilenet/dist/mobilenet.min.js"></script>',
             '<script src="/libs/@tensorflow-models/knn-classifier/dist/knn-classifier.min.js"></script>',
 
