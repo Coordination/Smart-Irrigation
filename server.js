@@ -239,7 +239,7 @@ app.get('/', async (req, res) => {
                 '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
                     '<input type="text" id="custom-input-' + z.zone_id + '" placeholder="Or type any plant (e.g. Orchid)" style="flex:2; padding:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;">' +
                     '<button type="button" id="custom-btn-' + z.zone_id + '" onclick="handleCustomPlant(' + z.zone_id + ')" style="flex:1; background:#2980b9;">Set</button>' +
-                '</div>' 
+                '</div>' +
                 '<div style="margin-top: 8px; display: flex; gap: 5px;">' +
                     '<button type="button" onclick="startLaptopCamera(' + z.zone_id + ')" style="background:#34495e;">Start Cam</button>' +
                     '<button type="button" id="scan-btn-' + z.zone_id + '" onclick="captureLaptopFrame(' + z.zone_id + ')" style="background:#27ae60;">Scan Crop</button>' +
