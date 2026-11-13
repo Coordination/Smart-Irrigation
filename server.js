@@ -5,6 +5,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use('/libs', express.static('node_modules'));
+
 
 // 1. MONGODB CONNECTION & SCHEMAS
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -280,9 +282,10 @@ app.get('/', async (req, res) => {
 
         const htmlPage = [
             '<!DOCTYPE html><html><head><title>Irrigation Dashboard</title>',
-                                  '<script src="https://unpkg.com"></script>',
-            '<script src="https://unpkg.com"></script>',
-            '<script src="https://unpkg.com"></script>',
+                                              '<script src="/libs/@tensorflow/tfjs/dist/tf.min.js"></script>',
+            '<script src="/libs/@tensorflow-models/mobilenet/dist/mobilenet.min.js"></script>',
+            '<script src="/libs/@tensorflow-models/knn-classifier/dist/knn-classifier.min.js"></script>',
+
 
             '<style>',
             'body{font-family:sans-serif;background:#f0f2f5;padding:20px;}',
@@ -303,10 +306,11 @@ app.get('/', async (req, res) => {
             //'let operationalStreams = {};',
             //'let isBusy = false;',
             'let net;',
-            'let classifier = knnClassifier.create();',
+            
                         'async function loadMLModel() {',
             '    net = await mobilenet.load();',
             '    try {',
+            'let classifier = knnClassifier.create();',
             '        const res = await fetch("/api/ml-model");',
             '        const data = await res.json();',
             '        if (data.success && data.dataset_json) {',
