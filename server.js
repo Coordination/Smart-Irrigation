@@ -26,7 +26,8 @@ const zoneSchema = new mongoose.Schema({
     zone_id: { type: Number, required: true, unique: true },
     plant_name: { type: String, required: true },
     pump_status: { type: String, default: 'INACTIVE' },
-    humidity_level: { type: Number, default: 40.0 },
+    humidity_level: { type: Number, default: 0 },
+    last_seen: { type: Date, default: null },
     cached_img: { type: String, default: '' }
 });
 const mlModelSchema = new mongoose.Schema({
@@ -56,7 +57,8 @@ async function seedDefaultData() {
                 zone_id: 0,
                 plant_name: 'Tomato',
                 pump_status: 'INACTIVE',
-                humidity_level: 42.0,
+                humidity_level: 0,
+                last_seen: null,
                 cached_img: ''
             });
             console.log('Single default zone seeded.');
@@ -141,78 +143,80 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     return libraryEntry;
 }
 
-// 3. ESP32 HARDWARE SENSOR & PUMP CONTROL ENDPOINT
-// Replaces the simulated random interval: ESP32 sends POST /api/esp32/telemetry
-// with {"zone_id": 0, "humidity_level": 35.5} and receives {"pump_status": "ACTIVE" | "INACTIVE"}
+// HELPER TO RECALCULATE PUMP STATUS WHEN PLANT CHANGES
+async function recalculatePumpStatus(zoneId) {
+    const z = await Zone.findOne({ zone_id: zoneId });
+    if (!z) return;
+    const isOnline = z.last_seen && (Date.now() - new Date(z.last_seen).getTime() < 15000);
+    if (!isOnline) {
+        await Zone.updateOne({ zone_id: zoneId }, { pump_status: 'INACTIVE' });
+        return;
+    }
+    const escapedName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + escapedName + '$', 'i') } });
+    const newStatus = (targetCrop && z.humidity_level < targetCrop.required_humidity) ? 'ACTIVE' : 'INACTIVE';
+    await Zone.updateOne({ zone_id: zoneId }, { pump_status: newStatus });
+}
+
+// 3. ESP32 REAL HARDWARE TELEMETRY ENDPOINT
 app.post('/api/esp32/telemetry', async (req, res) => {
     try {
-        const zoneId = req.body.zone_id !== undefined ? parseInt(req.body.zone_id) : 0;
-        const humidity = parseFloat(req.body.humidity_level);
+        const { zone_id, humidity_level } = req.body;
+        const zId = zone_id !== undefined ? parseInt(zone_id) : 0;
+        const moisture = parseFloat(humidity_level);
 
-        if (isNaN(humidity)) {
-            return res.status(400).json({ success: false, error: 'Valid humidity_level is required' });
+        if (isNaN(moisture)) {
+            return res.status(400).json({ success: false, error: 'Invalid humidity_level' });
         }
 
-        const z = await Zone.findOne({ zone_id: zoneId });
+        const z = await Zone.findOne({ zone_id: zId });
         if (!z) {
             return res.status(404).json({ success: false, error: 'Zone not found' });
         }
 
-        const safeRegexName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + safeRegexName + '$', 'i') } });
-        const threshold = targetCrop ? targetCrop.required_humidity : 40.0;
-        const newStatus = humidity < threshold ? 'ACTIVE' : 'INACTIVE';
+        const escapedName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + escapedName + '$', 'i') } });
+        const newStatus = (targetCrop && moisture < targetCrop.required_humidity) ? 'ACTIVE' : 'INACTIVE';
 
         await Zone.updateOne(
-            { zone_id: zoneId },
-            { humidity_level: parseFloat(humidity.toFixed(1)), pump_status: newStatus }
+            { zone_id: zId },
+            { humidity_level: moisture, pump_status: newStatus, last_seen: new Date() }
         );
 
         res.json({
             success: true,
-            zone_id: zoneId,
+            zone_id: zId,
             plant_name: z.plant_name,
-            humidity_level: parseFloat(humidity.toFixed(1)),
-            required_humidity: threshold,
+            required_humidity: targetCrop ? targetCrop.required_humidity : 0,
+            humidity_level: moisture,
             pump_status: newStatus
         });
     } catch (err) {
-        console.error('ESP32 telemetry error:', err.message);
+        console.error('ESP32 Telemetry Error:', err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-// Helper to recalculate pump status immediately when user changes plant on dashboard
-async function recalculateZonePump(zoneId) {
-    const z = await Zone.findOne({ zone_id: zoneId });
-    if (!z) return;
-    const safeRegexName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + safeRegexName + '$', 'i') } });
-    const threshold = targetCrop ? targetCrop.required_humidity : 40.0;
-    const newStatus = z.humidity_level < threshold ? 'ACTIVE' : 'INACTIVE';
-    await Zone.updateOne({ zone_id: zoneId }, { pump_status: newStatus });
-}
-
 // 4. API ROUTES
 app.post('/assign-dropdown', async (req, res) => {
     const { zone_id, plant_name } = req.body;
-    const id = parseInt(zone_id);
+    const zId = parseInt(zone_id);
     if (plant_name) {
-        await Zone.updateOne({ zone_id: id }, { plant_name, cached_img: '' });
-        await recalculateZonePump(id);
+        await Zone.updateOne({ zone_id: zId }, { plant_name, cached_img: '' });
+        await recalculatePumpStatus(zId);
     }
     res.json({ success: true });
 });
 
 app.post('/api/custom-plant', async (req, res) => {
     const { zone_id, plant_name } = req.body;
-    const id = parseInt(zone_id);
+    const zId = parseInt(zone_id);
     if (!plant_name || !plant_name.trim()) return res.status(400).json({ success: false, error: 'Invalid plant name' });
     try {
         const plantInfo = await getOrFetchPlantData(plant_name);
         if (plantInfo) {
-            await Zone.updateOne({ zone_id: id }, { plant_name: plantInfo.plant_name, cached_img: '' });
-            await recalculateZonePump(id);
+            await Zone.updateOne({ zone_id: zId }, { plant_name: plantInfo.plant_name, cached_img: '' });
+            await recalculatePumpStatus(zId);
             return res.json({ success: true, plant: plantInfo });
         }
         return res.json({ success: false, error: 'Could not find humidity data for that plant.' });
@@ -223,16 +227,16 @@ app.post('/api/custom-plant', async (req, res) => {
 
 app.post('/api/scan-camera', async (req, res) => {
     const { zone_id, image_data } = req.body;
-    const id = parseInt(zone_id);
+    const zId = parseInt(zone_id);
     if (!image_data) return res.status(400).json({ success: false, error: 'Image missing' });
     try {
         const plantInfo = await getOrFetchPlantData(null, image_data);
         if (plantInfo) {
             await Zone.updateOne(
-                { zone_id: id },
+                { zone_id: zId },
                 { plant_name: plantInfo.plant_name, cached_img: image_data }
             );
-            await recalculateZonePump(id);
+            await recalculatePumpStatus(zId);
             return res.json({ success: true, matched_crop: plantInfo.plant_name, humidity: plantInfo.required_humidity });
         }
         return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
@@ -251,10 +255,12 @@ app.get('/api/zone-status', async (req, res) => {
     try {
         const z = await Zone.findOne({ zone_id: 0 });
         if (!z) return res.status(404).json({ success: false });
+        const isOnline = Boolean(z.last_seen && (Date.now() - new Date(z.last_seen).getTime() < 15000));
         res.json({
             success: true,
-            humidity_level: z.humidity_level,
-            pump_status: z.pump_status
+            online: isOnline,
+            humidity_level: isOnline ? z.humidity_level : null,
+            pump_status: isOnline ? z.pump_status : 'INACTIVE'
         });
     } catch (err) {
         res.status(500).json({ success: false });
@@ -295,14 +301,19 @@ app.get('/', async (req, res) => {
             '<option value="' + p.plant_name + '">' + p.plant_name + ' (' + p.required_humidity + '%)</option>'
         ).join('');
         const currentThreshold = plantLibrary.find(p => p.plant_name.toLowerCase() === z.plant_name.toLowerCase())?.required_humidity || 0;
-        const badgeText = z.pump_status === 'ACTIVE' ? 'PUMP: ON' : 'PUMP: OFF';
+        const isOnline = Boolean(z.last_seen && (Date.now() - new Date(z.last_seen).getTime() < 15000));
+        const activeStatus = isOnline ? z.pump_status : 'INACTIVE';
+        const badgeText = activeStatus === 'ACTIVE' ? 'PUMP: ON' : 'PUMP: OFF';
+        const moistureDisplay = isOnline
+            ? '<span id="moisture-num-' + z.zone_id + '" class="num">' + z.humidity_level + '%</span>'
+            : '<span id="moisture-num-' + z.zone_id + '" class="offline-text">Waiting for ESP32...</span>';
         const imgDisplay = z.cached_img ? 'block' : 'none';
         const labelDisplay = z.cached_img ? 'none' : 'block';
         const panelHtml =
             '<div class="card" id="zone-card-' + z.zone_id + '">' +
-                '<h2>Zone 1 <span id="pump-badge-' + z.zone_id + '" class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
+                '<h2>Zone 1 <span id="pump-badge-' + z.zone_id + '" class="badge ' + activeStatus + '">' + badgeText + '</span></h2>' +
                 '<p>Crop Focus: <b style="color:#2e7d32;">' + z.plant_name + '</b> (Threshold: ' + currentThreshold + '%)</p>' +
-                '<p>Moisture Reading: <span id="moisture-num-' + z.zone_id + '" class="num">' + z.humidity_level + '%</span></p>' +
+                '<p>Moisture Reading: ' + moistureDisplay + '</p>' +
                 '<div class="box" id="media-box-' + z.zone_id + '">' +
                     '<img id="img-' + z.zone_id + '" src="' + (z.cached_img || '') + '" style="display:' + imgDisplay + '; width:100%; height:100%; object-fit:cover;">' +
                     '<video id="video-' + z.zone_id + '" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>' +
@@ -334,6 +345,7 @@ app.get('/', async (req, res) => {
             '.ACTIVE{background:#d4edda;color:#155724;border:1px solid #155724;}',
             '.INACTIVE{background:#e2e3e5;color:#383d41;border:1px solid #ccc;}',
             '.num{font-size:22px;font-weight:bold;color:#004085;}',
+            '.offline-text{font-size:15px;font-weight:bold;color:#7f8c8d;font-style:italic;}',
             '.box{width:100%;height:180px;background:#e9ecef;margin:12px 0;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:4px;border:1px solid #ccc;}',
             'select,button{width:100%;padding:10px;border-radius:4px;border:1px solid #ccc;font-size:13px;}',
             'button{color:white;border:none;cursor:pointer;font-weight:bold;}',
@@ -532,7 +544,15 @@ app.get('/', async (req, res) => {
             '        if (data.success) {',
             '            const numEl = document.getElementById("moisture-num-0");',
             '            const badgeEl = document.getElementById("pump-badge-0");',
-            '            if (numEl) numEl.innerText = data.humidity_level + "%";',
+            '            if (numEl) {',
+            '                if (data.online && data.humidity_level !== null) {',
+            '                    numEl.className = "num";',
+            '                    numEl.innerText = data.humidity_level + "%";',
+            '                } else {',
+            '                    numEl.className = "offline-text";',
+            '                    numEl.innerText = "Waiting for ESP32...";',
+            '                }',
+            '            }',
             '            if (badgeEl) {',
             '                badgeEl.className = "badge " + data.pump_status;',
             '                badgeEl.innerText = data.pump_status === "ACTIVE" ? "PUMP: ON" : "PUMP: OFF";',
