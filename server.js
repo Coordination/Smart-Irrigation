@@ -2,7 +2,6 @@ const express = require('express');
 const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -12,7 +11,6 @@ if (!MONGODB_URI) {
     console.error('ERROR: MONGODB_URI environment variable is missing!');
     process.exit(1);
 }
-
 mongoose.connect(MONGODB_URI)
     .then(() => {
         console.log('Connected to MongoDB Atlas');
@@ -24,7 +22,6 @@ const plantSchema = new mongoose.Schema({
     plant_name: { type: String, required: true, unique: true },
     required_humidity: { type: Number, required: true }
 });
-
 const zoneSchema = new mongoose.Schema({
     zone_id: { type: Number, required: true, unique: true },
     plant_name: { type: String, required: true },
@@ -32,7 +29,6 @@ const zoneSchema = new mongoose.Schema({
     humidity_level: { type: Number, default: 40.0 },
     cached_img: { type: String, default: '' }
 });
-
 const mlModelSchema = new mongoose.Schema({
     model_id: { type: String, default: 'leaf_knn', unique: true },
     dataset_json: { type: String, required: true }
@@ -54,9 +50,7 @@ async function seedDefaultData() {
             ]);
             console.log('Default plant library seeded.');
         }
-
         await Zone.deleteMany({ zone_id: { $ne: 0 } });
-
         if (await Zone.countDocuments({ zone_id: 0 }) === 0) {
             await Zone.create({
                 zone_id: 0,
@@ -86,8 +80,7 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
 
     const parts = [];
     if (base64Image) {
-              const base64Clean = base64Image.includes(',') ? base64Image.split(',').pop() : base64Image;
-
+        const base64Clean = base64Image.includes(',') ? base64Image.split(',').pop() : base64Image;
         parts.push({ text: 'Identify the plant in this photo and determine its ideal soil moisture percentage (between 10 and 85). Reply ONLY with valid JSON: {"plant_name": "Common Name", "required_humidity": 45}. If no plant is visible, reply {"plant_name": "Unknown", "required_humidity": 0}.' });
         parts.push({ inline_data: { mime_type: 'image/jpeg', data: base64Clean } });
     } else {
@@ -95,21 +88,19 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
     }
 
     const host = ['generativelanguage', 'googleapis', 'com'].join('.');
-       const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-4-hydrogen'];
-
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-4-hydrogen'];
     let data = null;
     let lastError = 'Gemini API request failed';
 
     for (const modelName of modelsToTry) {
         const path = ['v1beta', 'models', modelName + ':generateContent'].join('/');
         const geminiUrl = 'https://' + host + '/' + path + '?key=' + apiKey.trim();
-
         let response;
         try {
             response = await fetch(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(30000),
                 body: JSON.stringify({
                     contents: [{ parts }],
                     generationConfig: { responseMimeType: 'application/json' }
@@ -127,58 +118,101 @@ async function getOrFetchPlantData(plantName, base64Image = null) {
         }
         lastError = data.error?.message || 'Gemini API request failed';
         console.warn('Model ' + modelName + ' busy, trying next...', lastError);
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     if (lastError) throw new Error(lastError);
 
-     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) throw new Error('No response from AI service.');
 
-    const parsed = JSON.parse(rawText);
+    const cleanJson = rawText.replace(/```json|```/gi, '').trim();
+    const parsed = JSON.parse(cleanJson);
     if (!parsed.plant_name || parsed.plant_name.toLowerCase() === 'unknown') return null;
 
-    const formattedName = parsed.plant_name.charAt(0).toUpperCase() + parsed.plant_name.slice(1);
+    const formattedName = parsed.plant_name.charAt(0).toUpperCase() + parsed.plant_name.slice(1).trim();
     const humidity = parseFloat(parsed.required_humidity) || 45.0;
+    const safeRegexName = formattedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    let libraryEntry = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + formattedName + '$', 'i') } });
+    let libraryEntry = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + safeRegexName + '$', 'i') } });
     if (!libraryEntry) {
         libraryEntry = await Plant.create({ plant_name: formattedName, required_humidity: humidity });
     }
     return libraryEntry;
 }
 
-// 3. SIMULATED LIVE SENSOR UPDATES (EVERY 5s)
-setInterval(async () => {
+// 3. ESP32 HARDWARE SENSOR & PUMP CONTROL ENDPOINT
+// Replaces the simulated random interval: ESP32 sends POST /api/esp32/telemetry
+// with {"zone_id": 0, "humidity_level": 35.5} and receives {"pump_status": "ACTIVE" | "INACTIVE"}
+app.post('/api/esp32/telemetry', async (req, res) => {
     try {
-        const z = await Zone.findOne({ zone_id: 0 });
-        if (!z) return;
-        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + z.plant_name + '$', 'i') } });
-        const newHumidity = parseFloat((Math.random() * (80 - 20) + 20).toFixed(1));
-        const newStatus = (targetCrop && newHumidity < targetCrop.required_humidity) ? 'ACTIVE' : 'INACTIVE';
-        await Zone.updateOne({ zone_id: 0 }, { humidity_level: newHumidity, pump_status: newStatus });
+        const zoneId = req.body.zone_id !== undefined ? parseInt(req.body.zone_id) : 0;
+        const humidity = parseFloat(req.body.humidity_level);
+
+        if (isNaN(humidity)) {
+            return res.status(400).json({ success: false, error: 'Valid humidity_level is required' });
+        }
+
+        const z = await Zone.findOne({ zone_id: zoneId });
+        if (!z) {
+            return res.status(404).json({ success: false, error: 'Zone not found' });
+        }
+
+        const safeRegexName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + safeRegexName + '$', 'i') } });
+        const threshold = targetCrop ? targetCrop.required_humidity : 40.0;
+        const newStatus = humidity < threshold ? 'ACTIVE' : 'INACTIVE';
+
+        await Zone.updateOne(
+            { zone_id: zoneId },
+            { humidity_level: parseFloat(humidity.toFixed(1)), pump_status: newStatus }
+        );
+
+        res.json({
+            success: true,
+            zone_id: zoneId,
+            plant_name: z.plant_name,
+            humidity_level: parseFloat(humidity.toFixed(1)),
+            required_humidity: threshold,
+            pump_status: newStatus
+        });
     } catch (err) {
-        console.error('Sensor update error:', err.message);
+        console.error('ESP32 telemetry error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
     }
-}, 5000);
+});
+
+// Helper to recalculate pump status immediately when user changes plant on dashboard
+async function recalculateZonePump(zoneId) {
+    const z = await Zone.findOne({ zone_id: zoneId });
+    if (!z) return;
+    const safeRegexName = z.plant_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const targetCrop = await Plant.findOne({ plant_name: { $regex: new RegExp('^' + safeRegexName + '$', 'i') } });
+    const threshold = targetCrop ? targetCrop.required_humidity : 40.0;
+    const newStatus = z.humidity_level < threshold ? 'ACTIVE' : 'INACTIVE';
+    await Zone.updateOne({ zone_id: zoneId }, { pump_status: newStatus });
+}
 
 // 4. API ROUTES
 app.post('/assign-dropdown', async (req, res) => {
     const { zone_id, plant_name } = req.body;
+    const id = parseInt(zone_id);
     if (plant_name) {
-        await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name, cached_img: '' });
+        await Zone.updateOne({ zone_id: id }, { plant_name, cached_img: '' });
+        await recalculateZonePump(id);
     }
     res.json({ success: true });
 });
 
 app.post('/api/custom-plant', async (req, res) => {
     const { zone_id, plant_name } = req.body;
+    const id = parseInt(zone_id);
     if (!plant_name || !plant_name.trim()) return res.status(400).json({ success: false, error: 'Invalid plant name' });
     try {
         const plantInfo = await getOrFetchPlantData(plant_name);
         if (plantInfo) {
-            await Zone.updateOne({ zone_id: parseInt(zone_id) }, { plant_name: plantInfo.plant_name, cached_img: '' });
+            await Zone.updateOne({ zone_id: id }, { plant_name: plantInfo.plant_name, cached_img: '' });
+            await recalculateZonePump(id);
             return res.json({ success: true, plant: plantInfo });
         }
         return res.json({ success: false, error: 'Could not find humidity data for that plant.' });
@@ -186,16 +220,19 @@ app.post('/api/custom-plant', async (req, res) => {
         return res.status(500).json({ success: false, error: err.message });
     }
 });
+
 app.post('/api/scan-camera', async (req, res) => {
     const { zone_id, image_data } = req.body;
+    const id = parseInt(zone_id);
     if (!image_data) return res.status(400).json({ success: false, error: 'Image missing' });
     try {
         const plantInfo = await getOrFetchPlantData(null, image_data);
         if (plantInfo) {
             await Zone.updateOne(
-                { zone_id: parseInt(zone_id) },
+                { zone_id: id },
                 { plant_name: plantInfo.plant_name, cached_img: image_data }
             );
+            await recalculateZonePump(id);
             return res.json({ success: true, matched_crop: plantInfo.plant_name, humidity: plantInfo.required_humidity });
         }
         return res.json({ success: false, error: 'No recognizable plant detected in frame.' });
@@ -204,12 +241,12 @@ app.post('/api/scan-camera', async (req, res) => {
     }
 });
 
-
 app.post('/api/clear-image', async (req, res) => {
     const { zone_id } = req.body;
     await Zone.updateOne({ zone_id: parseInt(zone_id) }, { cached_img: '' });
     res.json({ success: true });
 });
+
 app.get('/api/zone-status', async (req, res) => {
     try {
         const z = await Zone.findOne({ zone_id: 0 });
@@ -247,29 +284,25 @@ app.post('/api/ml-model', async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
 // 5. MAIN DASHBOARD INTERFACE
 app.get('/', async (req, res) => {
     try {
         const plantLibrary = await Plant.find().sort({ plant_name: 1 });
         const z = await Zone.findOne({ zone_id: 0 });
         if (!z) return res.status(500).send('Zone not initialized yet. Refresh in a moment.');
-
         const dropdownOptions = plantLibrary.map(p =>
             '<option value="' + p.plant_name + '">' + p.plant_name + ' (' + p.required_humidity + '%)</option>'
         ).join('');
-
         const currentThreshold = plantLibrary.find(p => p.plant_name.toLowerCase() === z.plant_name.toLowerCase())?.required_humidity || 0;
         const badgeText = z.pump_status === 'ACTIVE' ? 'PUMP: ON' : 'PUMP: OFF';
         const imgDisplay = z.cached_img ? 'block' : 'none';
         const labelDisplay = z.cached_img ? 'none' : 'block';
-
         const panelHtml =
             '<div class="card" id="zone-card-' + z.zone_id + '">' +
-                
-                            '<h2>Zone 1 <span id="pump-badge-' + z.zone_id + '" class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
+                '<h2>Zone 1 <span id="pump-badge-' + z.zone_id + '" class="badge ' + z.pump_status + '">' + badgeText + '</span></h2>' +
                 '<p>Crop Focus: <b style="color:#2e7d32;">' + z.plant_name + '</b> (Threshold: ' + currentThreshold + '%)</p>' +
                 '<p>Moisture Reading: <span id="moisture-num-' + z.zone_id + '" class="num">' + z.humidity_level + '%</span></p>' +
-
                 '<div class="box" id="media-box-' + z.zone_id + '">' +
                     '<img id="img-' + z.zone_id + '" src="' + (z.cached_img || '') + '" style="display:' + imgDisplay + '; width:100%; height:100%; object-fit:cover;">' +
                     '<video id="video-' + z.zone_id + '" autoplay playsinline style="display:none; width:100%; height:100%; object-fit:cover;"></video>' +
@@ -345,8 +378,7 @@ app.get('/', async (req, res) => {
             '        console.log("MobileNet & KNN ready!");',
             '    } catch (err) {',
             '        console.error("Model Load Error:", err);',
-            '        if (scanBtn) scanBtn.innerText = "AI Load Failed";',
-            '        alert("AI Model failed to load: " + err.message);',
+            '        if (scanBtn) { scanBtn.disabled = false; scanBtn.innerText = "Scan Leaf"; }',
             '    }',
             '}',
             'window.addEventListener("DOMContentLoaded", loadMLModel);',
@@ -367,72 +399,67 @@ app.get('/', async (req, res) => {
             '    await fetch("/api/ml-model", {',
             '        method: "POST",',
             '        headers: { "Content-Type": "application/json" },',
-            '               body: JSON.stringify({ dataset_json: JSON.stringify(serializable) })',
+            '        body: JSON.stringify({ dataset_json: JSON.stringify(serializable) })',
             '    });',
             '    alert("Saved sample to MongoDB for: " + plantLabel + " (Total classes: " + classifier.getNumClasses() + ")");',
             '}',
-                                  '        async function classifyLeafML(zoneId) {',
-            '            const video = document.getElementById("video-" + zoneId);',
-            '            const img = document.getElementById("img-" + zoneId);',
-            '            const scanBtn = document.getElementById("scan-btn-" + zoneId);',
-            '            if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
-            '            isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
-            '            try {',
-            '                const canvas = document.createElement("canvas");',
-            '                canvas.width = 640; canvas.height = 480;',
-            '                canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
-            '                const base64Image = canvas.toDataURL("image/jpeg", 0.9);',
-            '                let localMatch = null;',
-            '                if (net && classifier && classifier.getNumClasses() >= 1) {',
-            '                    const activation = net.infer(video, true);',
-            '                    const result = await classifier.predictClass(activation, 3);',
-            '                    activation.dispose();',
-            '                    const confidence = result.confidences[result.label] * 100;',
-            '                    console.log("KNN Prediction:", result.label, confidence.toFixed(1) + "%");',
-            '                    if (confidence >= 65) {',
-            '                        localMatch = result.label;',
-            '                    }',
-            '                }',
-            '                if (img) { img.src = base64Image; img.style.display = "block"; }',
-            '                video.style.display = "none";',
-            '                operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
-            '                delete operationalStreams[zoneId];',
-            '                if (localMatch) {',
-            '                    const res = await fetch("/api/custom-plant", {',
-            '                        method: "POST",',
-            '                        headers: { "Content-Type": "application/json" },',
-            '                        body: JSON.stringify({ zone_id: zoneId, plant_name: localMatch })',
-            '                    });',
-            '                    const data = await res.json();',
-            '                    if (data.success) return window.location.reload();',
-            '                }',
-            '               // scanBtn.innerText = "Ask Gemini AI...";',
-                        '                scanBtn.innerText = "Ask Gemini AI...";',
-            '                const cloudRes = await fetch("/api/scan-camera", {',
-            '                    method: "POST",',
-            '                    headers: { "Content-Type": "application/json" },',
-            '                    body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })',
-            '                });',
-            '                const cloudData = await cloudRes.json();',
-            '                if (cloudData.success) {',
-            '                    window.location.reload();',
-            '                } else {',
-            '                    alert(cloudData.error || "Could not identify plant.");',
-            '                    isBusy = false;',
-            '                    scanBtn.disabled = false;',
-            '                    scanBtn.innerText = "Scan Leaf";',
-            '                }',
-            '            } catch (err) {',
-            '                alert("Scan failed: " + err.message);',
-            '                isBusy = false;',
-            '                scanBtn.disabled = false;',
-            '                scanBtn.innerText = "Scan Leaf";',
+            'async function classifyLeafML(zoneId) {',
+            '    const video = document.getElementById("video-" + zoneId);',
+            '    const img = document.getElementById("img-" + zoneId);',
+            '    const scanBtn = document.getElementById("scan-btn-" + zoneId);',
+            '    if (!operationalStreams[zoneId] || video.readyState < 2) return alert("Click Start Cam first!");',
+            '    isBusy = true; scanBtn.disabled = true; scanBtn.innerText = "Scanning...";',
+            '    try {',
+            '        const canvas = document.createElement("canvas");',
+            '        canvas.width = 480; canvas.height = 360;',
+            '        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);',
+            '        const base64Image = canvas.toDataURL("image/jpeg", 0.7);',
+            '        let localMatch = null;',
+            '        if (net && classifier && classifier.getNumClasses() >= 2) {',
+            '            const activation = net.infer(video, true);',
+            '            const result = await classifier.predictClass(activation, 3);',
+            '            activation.dispose();',
+            '            const confidence = result.confidences[result.label] * 100;',
+            '            console.log("KNN Prediction:", result.label, confidence.toFixed(1) + "%");',
+            '            if (confidence >= 75) {',
+            '                localMatch = result.label;',
             '            }',
             '        }',
-            //'async function startLaptopCamera(zoneId) {',
-
-
-
+            '        if (img) { img.src = base64Image; img.style.display = "block"; }',
+            '        video.style.display = "none";',
+            '        operationalStreams[zoneId].getTracks().forEach(track => track.stop());',
+            '        delete operationalStreams[zoneId];',
+            '        if (localMatch) {',
+            '            const res = await fetch("/api/custom-plant", {',
+            '                method: "POST",',
+            '                headers: { "Content-Type": "application/json" },',
+            '                body: JSON.stringify({ zone_id: zoneId, plant_name: localMatch })',
+            '            });',
+            '            const data = await res.json();',
+            '            if (data.success) return window.location.reload();',
+            '        }',
+            '        scanBtn.innerText = "Ask Gemini AI...";',
+            '        const cloudRes = await fetch("/api/scan-camera", {',
+            '            method: "POST",',
+            '            headers: { "Content-Type": "application/json" },',
+            '            body: JSON.stringify({ zone_id: zoneId, image_data: base64Image })',
+            '        });',
+            '        const cloudData = await cloudRes.json();',
+            '        if (cloudData.success) {',
+            '            window.location.reload();',
+            '        } else {',
+            '            alert(cloudData.error || "Could not identify plant.");',
+            '            isBusy = false;',
+            '            scanBtn.disabled = false;',
+            '            scanBtn.innerText = "Scan Leaf";',
+            '        }',
+            '    } catch (err) {',
+            '        alert("Scan failed: " + err.message);',
+            '        isBusy = false;',
+            '        scanBtn.disabled = false;',
+            '        scanBtn.innerText = "Scan Leaf";',
+            '    }',
+            '}',
             'async function startLaptopCamera(zoneId) {',
             '    Object.keys(operationalStreams).forEach(id => {',
             '        operationalStreams[id].getTracks().forEach(track => track.stop());',
@@ -498,7 +525,7 @@ app.get('/', async (req, res) => {
             '    });',
             '    window.location.reload();',
             '}',
-               'setInterval(async () => {',
+            'setInterval(async () => {',
             '    try {',
             '        const res = await fetch("/api/zone-status");',
             '        const data = await res.json();',
@@ -512,15 +539,13 @@ app.get('/', async (req, res) => {
             '            }',
             '        }',
             '    } catch (e) {}',
-            '}, 5000);',
-
+            '}, 3000);',
             '</script>',
             '</head><body>',
             '<h1 style="text-align:center;color:#2e7d32;">Smart Irrigation Control Dashboard</h1>',
             '<div class="container">' + panelHtml + '</div>',
             '</body></html>'
         ].join('\n');
-
         res.send(htmlPage);
     } catch (err) {
         res.status(500).send('Database error: ' + err.message);
